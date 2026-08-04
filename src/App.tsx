@@ -63,6 +63,8 @@ type ClientGroupRecord = {
 }
 
 const MASTER_EMAIL = 'henrique.andrade142@gmail.com'
+const MASTER_WHATSAPP = '(31) 98502-4841'
+const MASTER_SETOR = 'TI'
 const MASTER_PASSWORD_HASH = '4cfd8b11c5d6d57f420889084a45b4a808f4c4ecc21c3abc6aa903fc99e5536a'
 const USERS_KEY = 'agent_crossdo_users'
 const CLIENT_GROUPS_KEY = 'agent_crossdo_client_groups'
@@ -73,8 +75,8 @@ const masterUser: UserRecord = {
   id: 'USR-0001',
   nome: 'Henrique Andrade',
   email: MASTER_EMAIL,
-  whatsapp: '',
-  setor: 'Diretoria / Cross Agent',
+  whatsapp: MASTER_WHATSAPP,
+  setor: MASTER_SETOR,
   perfil: 'Master',
   status: 'Ativo',
   protegido: true,
@@ -124,6 +126,34 @@ function generateId(prefix: string) {
 
 function normalizePhone(value: string) {
   return value.replace(/\D/g, '')
+}
+
+function formatWhatsapp(value: string) {
+  const digits = normalizePhone(value).slice(0, 11)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+}
+
+function isValidWhatsapp(value: string) {
+  const digits = normalizePhone(value)
+  return digits.length === 10 || digits.length === 11
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await response.json().catch(() => ({})) as T & { detail?: string }
+  if (!response.ok) throw new Error(data.detail || 'Falha na solicitação')
+  return data
 }
 
 function readStore<T>(key: string, fallback: T): T {
@@ -358,22 +388,44 @@ function App() {
     }
   }
 
-  function saveUser(event: React.FormEvent<HTMLFormElement>) {
+  async function saveUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!userForm.nome.trim() || !userForm.email.trim() || !userForm.setor.trim()) {
+    const normalizedEmail = userForm.email.trim().toLowerCase()
+    const maskedWhatsapp = formatWhatsapp(userForm.whatsapp)
+
+    if (!userForm.nome.trim() || !normalizedEmail || !userForm.setor.trim()) {
       notify('Preencha nome, e-mail e setor.')
       return
     }
+    if (!isValidEmail(normalizedEmail)) {
+      notify('Informe um e-mail válido.')
+      return
+    }
+    if (userForm.whatsapp.trim() && !isValidWhatsapp(userForm.whatsapp)) {
+      notify('Informe um WhatsApp válido com DDD.')
+      return
+    }
     if (userForm.id === masterUser.id) return
-    const exists = users.some((user) => user.id !== userForm.id && user.email.toLowerCase() === userForm.email.toLowerCase())
+    const exists = users.some((user) => user.id !== userForm.id && user.email.toLowerCase() === normalizedEmail)
     if (exists) {
       notify('Já existe usuário com este e-mail.')
       return
     }
-    const record = { ...userForm, id: userForm.id || generateId('USR') }
+
+    const record = { ...userForm, email: normalizedEmail, whatsapp: maskedWhatsapp, id: userForm.id || generateId('USR') }
+
+    if (!userForm.id) {
+      try {
+        await postJson<{ ok: boolean; mensagem: string }>('/api/v1/usuarios', record)
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'Não foi possível enviar o e-mail de primeiro acesso.')
+        return
+      }
+    }
+
     persistUsers(userForm.id ? users.map((user) => (user.id === userForm.id ? record : user)) : [...users, record])
     setUserForm(emptyUser)
-    notify('Usuário salvo.')
+    notify(userForm.id ? 'Usuário salvo.' : 'Usuário criado e senha enviada por e-mail.')
   }
 
   function editUser(user: UserRecord) {
@@ -393,10 +445,33 @@ function App() {
     persistUsers(users.map((item) => (item.id === user.id ? { ...item, status: item.status === 'Ativo' ? 'Inativo' : 'Ativo' } : item)))
   }
 
+
+  async function resetUserPassword(user: UserRecord) {
+    if (user.id === masterUser.id) return
+    if (!isValidEmail(user.email)) {
+      notify('Usuário sem e-mail válido.')
+      return
+    }
+    try {
+      const result = await postJson<{ ok: boolean; mensagem: string }>('/api/v1/usuarios/resetar-senha', { email: user.email })
+      notify(result.mensagem || 'Nova senha enviada por e-mail.')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Não foi possível resetar a senha.')
+    }
+  }
+
   function saveClientGroup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!clientGroupForm.nomeGrupo.trim() || !clientGroupForm.idGrupo.trim()) {
       notify('Preencha nome do grupo e ID do grupo.')
+      return
+    }
+    if (clientGroupForm.emailResponsavel.trim() && !isValidEmail(clientGroupForm.emailResponsavel)) {
+      notify('Informe um e-mail de responsável válido.')
+      return
+    }
+    if (clientGroupForm.telefoneResponsavel.trim() && !isValidWhatsapp(clientGroupForm.telefoneResponsavel)) {
+      notify('Informe um WhatsApp de responsável válido com DDD.')
       return
     }
     const duplicate = clientGroups.some((item) => item.id !== clientGroupForm.id && item.idGrupo === clientGroupForm.idGrupo)
@@ -404,7 +479,7 @@ function App() {
       notify('Já existe cadastro com este ID de grupo.')
       return
     }
-    const record = { ...clientGroupForm, id: clientGroupForm.id || generateId('CG') }
+    const record = { ...clientGroupForm, emailResponsavel: clientGroupForm.emailResponsavel.trim().toLowerCase(), telefoneResponsavel: formatWhatsapp(clientGroupForm.telefoneResponsavel), id: clientGroupForm.id || generateId('CG') }
     persistClientGroups(clientGroupForm.id ? clientGroups.map((item) => (item.id === clientGroupForm.id ? record : item)) : [record, ...clientGroups])
     setClientGroupForm(emptyClientGroup)
     setContactForm(emptyContact)
@@ -422,7 +497,15 @@ function App() {
       notify('Informe o WhatsApp do contato.')
       return
     }
-    const record = autofillInternalContact({ ...contactForm, id: contactForm.id || generateId('CTT') })
+    if (!isValidWhatsapp(contactForm.whatsapp)) {
+      notify('Informe um WhatsApp válido com DDD.')
+      return
+    }
+    if (contactForm.email.trim() && !isValidEmail(contactForm.email)) {
+      notify('Informe um e-mail válido para o contato.')
+      return
+    }
+    const record = autofillInternalContact({ ...contactForm, whatsapp: formatWhatsapp(contactForm.whatsapp), email: contactForm.email.trim().toLowerCase(), id: contactForm.id || generateId('CTT') })
     const contacts = contactForm.id
       ? clientGroupForm.contatos.map((item) => item.id === contactForm.id ? record : item)
       : mergeContacts(clientGroupForm.contatos, [record])
@@ -455,7 +538,7 @@ function App() {
                 <td>{user.nome}</td><td>{user.email}</td><td>{user.whatsapp || '—'}</td><td>{user.setor}</td>
                 <td><span className="pill dark">{user.protegido ? 'Administrador' : user.perfil}</span></td>
                 <td><button className={`pill status ${user.status === 'Ativo' ? 'success' : 'neutral'}`} type="button" onClick={() => toggleUserStatus(user)}>{user.status}</button></td>
-                <td><div className="row-actions"><button type="button" onClick={() => editUser(user)} disabled={user.protegido}><Edit3 size={15} /></button><button type="button" onClick={() => deleteUser(user.id)} disabled={user.protegido}><Trash2 size={15} /></button></div></td>
+                <td><div className="row-actions"><button type="button" title="Editar" onClick={() => editUser(user)} disabled={user.protegido}><Edit3 size={15} /></button><button type="button" title="Resetar senha" onClick={() => resetUserPassword(user)} disabled={user.protegido}><KeyRound size={15} /></button><button type="button" title="Remover" onClick={() => deleteUser(user.id)} disabled={user.protegido}><Trash2 size={15} /></button></div></td>
               </tr>
             ))}</tbody>
           </table>
@@ -463,8 +546,8 @@ function App() {
         <form className="card record-form" onSubmit={saveUser}>
           <h3>{userForm.id ? 'Editar usuário' : 'Novo usuário'}</h3>
           <label><span>Nome</span><input value={userForm.nome} onChange={(event) => setUserForm({ ...userForm, nome: event.target.value })} /></label>
-          <label><span>E-mail</span><input type="email" value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></label>
-          <label><span>WhatsApp</span><input value={userForm.whatsapp} onChange={(event) => setUserForm({ ...userForm, whatsapp: event.target.value })} /></label>
+          <label><span>E-mail</span><input type="email" inputMode="email" autoComplete="email" value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value.trim().toLowerCase() })} /></label>
+          <label><span>WhatsApp</span><input inputMode="tel" autoComplete="tel" placeholder="(31) 99999-9999" value={userForm.whatsapp} onChange={(event) => setUserForm({ ...userForm, whatsapp: formatWhatsapp(event.target.value) })} /></label>
           <label><span>Setor/Função</span><input value={userForm.setor} onChange={(event) => setUserForm({ ...userForm, setor: event.target.value })} /></label>
           <label><span>Perfil</span><select value={userForm.perfil} onChange={(event) => setUserForm({ ...userForm, perfil: event.target.value as UserRecord['perfil'] })}><option>Administrador</option><option>Atendimento</option></select></label>
           <label><span>Status</span><select value={userForm.status} onChange={(event) => setUserForm({ ...userForm, status: event.target.value as Status })}><option>Ativo</option><option>Inativo</option></select></label>
@@ -503,8 +586,8 @@ function App() {
           <label><span>CNPJ / CPF</span><input value={clientGroupForm.documento} onChange={(event) => setClientGroupForm({ ...clientGroupForm, documento: event.target.value })} /></label>
           <label><span>Unidade</span><select value={clientGroupForm.unidade} onChange={(event) => setClientGroupForm({ ...clientGroupForm, unidade: event.target.value })}><option>Nova Lima/MG</option><option>Barueri/SP</option><option>Todas</option></select></label>
           <label><span>Responsável do cliente</span><input value={clientGroupForm.responsavelCliente} onChange={(event) => setClientGroupForm({ ...clientGroupForm, responsavelCliente: event.target.value })} /></label>
-          <label><span>E-mail do responsável</span><input type="email" value={clientGroupForm.emailResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, emailResponsavel: event.target.value })} /></label>
-          <label><span>WhatsApp do responsável</span><input value={clientGroupForm.telefoneResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, telefoneResponsavel: event.target.value })} /></label>
+          <label><span>E-mail do responsável</span><input type="email" inputMode="email" autoComplete="email" value={clientGroupForm.emailResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, emailResponsavel: event.target.value.trim().toLowerCase() })} /></label>
+          <label><span>WhatsApp do responsável</span><input inputMode="tel" autoComplete="tel" placeholder="(31) 99999-9999" value={clientGroupForm.telefoneResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, telefoneResponsavel: formatWhatsapp(event.target.value) })} /></label>
           <label><span>Demanda monitorada</span><input value={clientGroupForm.demandaMonitorada} onChange={(event) => setClientGroupForm({ ...clientGroupForm, demandaMonitorada: event.target.value })} /></label>
           <label><span>SLA esperado</span><input value={clientGroupForm.sla} onChange={(event) => setClientGroupForm({ ...clientGroupForm, sla: event.target.value })} /></label>
           <label className="span-2"><span>Regra de atendimento</span><textarea value={clientGroupForm.regraAtendimento} onChange={(event) => setClientGroupForm({ ...clientGroupForm, regraAtendimento: event.target.value })} /></label>
@@ -521,11 +604,11 @@ function App() {
             </div>
           </div>
           <div className="contact-form span-2">
-            <label><span>WhatsApp</span><input value={contactForm.whatsapp} onChange={(event) => setContactForm({ ...contactForm, whatsapp: event.target.value })} onBlur={() => setContactForm(autofillInternalContact(contactForm))} /></label>
+            <label><span>WhatsApp</span><input inputMode="tel" autoComplete="tel" placeholder="(31) 99999-9999" value={contactForm.whatsapp} onChange={(event) => setContactForm({ ...contactForm, whatsapp: formatWhatsapp(event.target.value) })} onBlur={() => setContactForm(autofillInternalContact(contactForm))} /></label>
             <label><span>Tipo</span><select value={contactForm.tipo} onChange={(event) => setContactForm(autofillInternalContact({ ...contactForm, tipo: event.target.value as ContactType }))}><option>Não definido</option><option>Interno</option><option>Externo</option></select></label>
             <label><span>Nome</span><input value={contactForm.nome} onChange={(event) => setContactForm({ ...contactForm, nome: event.target.value })} /></label>
             <label><span>Função</span><input value={contactForm.funcao} onChange={(event) => setContactForm({ ...contactForm, funcao: event.target.value })} /></label>
-            <label><span>E-mail</span><input type="email" value={contactForm.email} onChange={(event) => setContactForm({ ...contactForm, email: event.target.value })} /></label>
+            <label><span>E-mail</span><input type="email" inputMode="email" autoComplete="email" value={contactForm.email} onChange={(event) => setContactForm({ ...contactForm, email: event.target.value.trim().toLowerCase() })} /></label>
             <button className="secondary-button" type="button" onClick={addContact}><Plus size={16} /> Adicionar contato</button>
           </div>
           <div className="form-actions span-2"><button className="secondary-button" type="button" onClick={() => { setClientGroupForm(emptyClientGroup); setContactForm(emptyContact) }}>Limpar</button><button className="primary-button" type="submit"><Save size={16} /> Salvar</button></div>
