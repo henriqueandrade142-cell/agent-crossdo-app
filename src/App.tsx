@@ -336,6 +336,28 @@ function App() {
     setLoginPassword('')
   }
 
+  async function handleForgotPassword() {
+    setLoginError('')
+    const email = loginEmail.trim().toLowerCase()
+    if (!email) {
+      setLoginError('Informe o e-mail para solicitar recuperação de senha.')
+      return
+    }
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/v1/auth/esqueci-senha`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      if (!response.ok) throw new Error('Falha na solicitação')
+      const data = await response.json() as { mensagem?: string }
+      notify(data.mensagem || 'Se esse e-mail estiver cadastrado e ativo, enviaremos uma nova senha.')
+    } catch {
+      setLoginError('Motor de e-mail ainda não respondeu. Verifique a API do Agent CrossDo.')
+    }
+  }
+
   function saveUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!userForm.nome.trim() || !userForm.email.trim() || !userForm.setor.trim()) {
@@ -534,13 +556,14 @@ function App() {
   if (!authenticated) {
     return (
       <div className="login-page">
-        <section className="login-brand"><img className="login-logo" src="/agent-crossdo-app/brand/logo-icon.png" alt="CrossDo" /><p>Portal de atendimento e auditoria</p><h1>Agent CrossDo</h1></section>
+        <section className="login-brand"><img className="login-logo" src="/brand/logo-icon.png" alt="CrossDo" /><p>Portal de atendimento e auditoria</p><h1>Agent CrossDo</h1></section>
         <form className="login-card" onSubmit={handleLogin}>
           <div><p className="eyebrow">Acesso restrito</p><span className="login-subtitle">Acesse com seu e-mail e senha</span></div>
-          <label><span>E-mail</span><input value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} type="email" autoComplete="email" /></label>
-          <label><span>Senha</span><input value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} type="password" autoComplete="current-password" autoFocus /></label>
+          <label htmlFor="login-email"><span>E-mail</span><input id="login-email" name="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} type="email" autoComplete="username email" /></label>
+          <label htmlFor="login-password"><span>Senha</span><input id="login-password" name="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} type="password" autoComplete="current-password" autoFocus /></label>
           {loginError && <p className="login-error">{loginError}</p>}
           <button className="primary-button full" type="submit">Entrar</button>
+          <button className="secondary-button full" type="button" onClick={handleForgotPassword}>Esqueci minha senha</button>
         </form>
       </div>
     )
@@ -549,7 +572,7 @@ function App() {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
-        <div className="sidebar-brand"><img className="sidebar-logo" src="/agent-crossdo-app/brand/logo-icon.png" alt="CrossDo" /><div><strong>Agent CrossDo</strong><span>Cross Agent</span></div></div>
+        <div className="sidebar-brand"><img className="sidebar-logo" src="/brand/logo-icon.png" alt="CrossDo" /><div><strong>Agent CrossDo</strong><span>Cross Agent</span></div></div>
         <nav className="side-nav"><button className={screen === 'dashboard' ? 'active' : ''} onClick={() => setScreen('dashboard')}><Home size={18} /> <span>Dashboard</span></button><button className="nav-parent" onClick={() => setCadastrosOpen(!cadastrosOpen)}><Users size={18} /> <span>Cadastros</span> <ChevronDown size={16} className={cadastrosOpen ? 'rotate' : ''} /></button>{cadastrosOpen && <div className="submenu"><button className={screen === 'usuarios' ? 'active' : ''} onClick={() => setScreen('usuarios')}><UserCog size={17} /> <span>Usuários</span></button><button className={screen === 'clientesGrupos' ? 'active' : ''} onClick={() => setScreen('clientesGrupos')}><Building2 size={17} /> <span>Clientes/Grupos</span></button></div>}</nav>
       </aside>
       <section className="main-area"><header className="topbar"><div className="topbar-left"><button className="icon-button" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Alternar menu"><Menu size={20} /></button><div><strong>Agent CrossDo</strong><span>Nome: Henrique Andrade • Setor: Diretoria / Cross Agent</span></div></div><div className="topbar-actions"><button title="Ajuda" type="button" onClick={() => window.open('https://github.com/henriqueandrade142-cell/agent-crossdo-app', '_blank', 'noopener,noreferrer')}><HelpCircle size={17} /> <span>Ajuda</span></button><button title="Atualizar" type="button" onClick={() => window.location.reload()}><RefreshCw size={17} /> <span>Atualizar</span></button><button title="Trocar senha" type="button" onClick={() => notify('Solicitação registrada.')}><KeyRound size={17} /> <span>Trocar senha</span></button><button title="Sair" type="button" onClick={() => setAuthenticated(false)}><LogOut size={17} /> <span>Sair</span></button></div></header>{flash && <div className="flash-message">{flash}</div>}{renderContent()}</section>
