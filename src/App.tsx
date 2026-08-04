@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import './App.css'
 
-type Screen = 'dashboard' | 'usuarios' | 'clientesGrupos'
+type Screen = 'dashboard' | 'usuarios' | 'clientesGrupos' | 'audit'
 type Status = 'Ativo' | 'Inativo'
 type ContactType = 'Interno' | 'Externo' | 'Não definido'
 
@@ -66,11 +66,48 @@ type ClientGroupRecord = {
   contatos: GroupContact[]
 }
 
+type AuditMessage = {
+  id: number
+  horario: string
+  grupo: string
+  cliente: string
+  contato: string
+  tipo: string
+  status: string
+  classificacao: string
+  risco: string
+  prioridade: string
+  requerWms: boolean
+  elegivelAutomacao: boolean
+  mensagem: string
+}
+
+type AuditFilters = {
+  grupo: string
+  status: string
+  classificacao: string
+  contato: string
+  inicio: string
+  fim: string
+  pendencias: boolean
+}
+
+const emptyAuditFilters: AuditFilters = {
+  grupo: '',
+  status: '',
+  classificacao: '',
+  contato: '',
+  inicio: '',
+  fim: '',
+  pendencias: false,
+}
+
 const MASTER_EMAIL = 'henrique.andrade142@gmail.com'
 const MASTER_WHATSAPP = '(31) 98502-4841'
 const MASTER_SETOR = 'TI'
 const MASTER_PASSWORD_HASH = '4cfd8b11c5d6d57f420889084a45b4a808f4c4ecc21c3abc6aa903fc99e5536a'
 const USERS_KEY = 'agent_crossdo_users'
+const AUTH_KEY = 'agent_crossdo_authenticated'
 
 const masterUser: UserRecord = {
   id: 'USR-0001',
@@ -242,7 +279,7 @@ async function sha256(value: string) {
 }
 
 function App() {
-  const [authenticated, setAuthenticated] = useState(false)
+  const [authenticated, setAuthenticated] = useState(() => window.localStorage.getItem(AUTH_KEY) === 'true')
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -258,6 +295,9 @@ function App() {
   const [contactForm, setContactForm] = useState<GroupContact>(emptyContact)
   const [userSearch, setUserSearch] = useState('')
   const [clientSearch, setClientSearch] = useState('')
+  const [auditFilters, setAuditFilters] = useState<AuditFilters>(emptyAuditFilters)
+  const [auditMessages, setAuditMessages] = useState<AuditMessage[]>([])
+  const [auditLoading, setAuditLoading] = useState(false)
 
   useEffect(() => {
     const storedUsers = readStore<UserRecord[]>(USERS_KEY, [masterUser])
@@ -268,7 +308,51 @@ function App() {
     getJson<{ items: ClientGroupRecord[] }>('/api/v1/grupos-clientes')
       .then((data) => setClientGroups((data.items || []).map(normalizeClientGroupRecord)))
       .catch(() => notify('Não foi possível carregar os grupos identificados pelo n8n.'))
+    loadAuditMessages()
   }, [])
+
+
+  async function loadAuditMessages(nextFilters = auditFilters) {
+    setAuditLoading(true)
+    const params = new URLSearchParams()
+    Object.entries(nextFilters).forEach(([key, value]) => {
+      if (typeof value === 'boolean') {
+        if (value) params.set(key, 'true')
+      } else if (value) {
+        params.set(key, value)
+      }
+    })
+    params.set('limit', '200')
+    try {
+      const data = await getJson<{ items: AuditMessage[] }>(`/api/v1/audit/mensagens?${params.toString()}`)
+      setAuditMessages(data.items || [])
+    } catch {
+      notify('Não foi possível carregar a auditoria do Cross Audit.')
+    } finally {
+      setAuditLoading(false)
+    }
+  }
+
+  function updateAuditFilter<K extends keyof AuditFilters>(key: K, value: AuditFilters[K]) {
+    setAuditFilters((current) => ({ ...current, [key]: value }))
+  }
+
+  function exportAuditCsv() {
+    const header = ['ID', 'Horário', 'Grupo', 'Cliente', 'Contato', 'Tipo', 'Status', 'Classificação', 'Risco', 'Prioridade', 'Requer WMS', 'Elegível automação', 'Mensagem']
+    const rows = auditMessages.map((item) => [
+      item.id, item.horario, item.grupo, item.cliente, item.contato, item.tipo, item.status,
+      item.classificacao, item.risco, item.prioridade, item.requerWms ? 'sim' : 'não',
+      item.elegivelAutomacao ? 'sim' : 'não', item.mensagem,
+    ])
+    const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(';')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `cross-audit-mensagens-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 
   function notify(message: string) {
     setFlash(message)
@@ -351,6 +435,7 @@ function App() {
       return
     }
     setAuthenticated(true)
+    window.localStorage.setItem(AUTH_KEY, 'true')
     setLoginPassword('')
   }
 
@@ -575,7 +660,7 @@ function App() {
           <label><span>E-mail do responsável</span><input type="email" inputMode="email" autoComplete="email" value={clientGroupForm.emailResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, emailResponsavel: event.target.value.trim().toLowerCase() })} /></label>
           <label><span>WhatsApp do responsável</span><input inputMode="tel" autoComplete="tel" placeholder="(31) 99999-9999" value={clientGroupForm.telefoneResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, telefoneResponsavel: formatWhatsapp(event.target.value) })} /></label>
           <div className="span-2 wms-box">
-            <div className="feature-box-header"><strong>Integração WMS e-Ship</strong><span className="sync-badge">Credencial por cliente</span></div>
+            <div className="feature-box-header"><strong>Integração WMS e-Ship</strong><div className="wms-header-badges"><span className="sync-badge">Credencial por cliente</span><span className={`pill ${clientGroupForm.wmsApiKeySet ? 'success' : 'neutral'}`}>{clientGroupForm.wmsApiKeySet ? 'Token informado' : 'Token não informado'}</span></div></div>
             <div className="wms-fields">
               <label><span>Usuário da API key e-Ship</span><input placeholder="Usuário/identificador usado no WMS" value={clientGroupForm.wmsApiKeyUsuario} onChange={(event) => setClientGroupForm({ ...clientGroupForm, wmsApiKeyUsuario: event.target.value })} /></label>
               <label><span>API key/token WMS e-Ship</span><input type="password" autoComplete="off" placeholder={clientGroupForm.wmsApiKeySet ? 'Token já configurado — preencher para substituir' : 'Cole a API key do cliente'} value={clientGroupForm.wmsApiKey} onChange={(event) => setClientGroupForm({ ...clientGroupForm, wmsApiKey: event.target.value })} /></label>
@@ -610,6 +695,46 @@ function App() {
     )
   }
 
+
+  function renderAudit() {
+    const pendingCount = auditMessages.filter((item) => ['pending_group_registration', 'ignored_private', 'ignored_unknown_source'].includes(item.status)).length
+    const classifiedCount = auditMessages.filter((item) => item.classificacao).length
+    const wmsCount = auditMessages.filter((item) => item.requerWms).length
+    return (
+      <main className="content-shell">
+        <SectionHeader eyebrow="Audit" title="Cross Audit" description="Acompanhe as mensagens gravadas no banco, grupos, contatos, classificações e pendências." />
+        <div className="stats-grid audit-stats">
+          <article className="stat-card blue"><span>Mensagens listadas</span><strong>{auditMessages.length}</strong><small>Limite de 200 por consulta</small></article>
+          <article className="stat-card orange"><span>Pendências</span><strong>{pendingCount}</strong><small>Grupo não mapeado, privado ou origem desconhecida</small></article>
+          <article className="stat-card green"><span>Classificadas</span><strong>{classifiedCount}</strong><small>Com classificação inicial</small></article>
+          <article className="stat-card red"><span>Requer WMS</span><strong>{wmsCount}</strong><small>Consultas futuras no e-Ship</small></article>
+        </div>
+        <form className="card audit-filters" onSubmit={(event) => { event.preventDefault(); loadAuditMessages() }}>
+          <label><span>Grupo</span><input value={auditFilters.grupo} onChange={(event) => updateAuditFilter('grupo', event.target.value)} placeholder="Versiani, Vorr..." /></label>
+          <label><span>Status</span><select value={auditFilters.status} onChange={(event) => updateAuditFilter('status', event.target.value)}><option value="">Todos</option><option value="new">new</option><option value="pending_group_registration">pending_group_registration</option><option value="ignored_private">ignored_private</option><option value="ignored_unknown_source">ignored_unknown_source</option></select></label>
+          <label><span>Classificação</span><select value={auditFilters.classificacao} onChange={(event) => updateAuditFilter('classificacao', event.target.value)}><option value="">Todas</option><option value="a_classificar">a_classificar</option><option value="grupo_nao_mapeado">grupo_nao_mapeado</option><option value="mensagem_privada_ignorada">mensagem_privada_ignorada</option></select></label>
+          <label><span>Contato</span><input value={auditFilters.contato} onChange={(event) => updateAuditFilter('contato', event.target.value)} placeholder="WhatsApp/remetente" /></label>
+          <label><span>Início</span><input type="datetime-local" value={auditFilters.inicio} onChange={(event) => updateAuditFilter('inicio', event.target.value)} /></label>
+          <label><span>Fim</span><input type="datetime-local" value={auditFilters.fim} onChange={(event) => updateAuditFilter('fim', event.target.value)} /></label>
+          <label className="check-label audit-check"><input type="checkbox" checked={auditFilters.pendencias} onChange={(event) => updateAuditFilter('pendencias', event.target.checked)} /><span>Somente pendências</span></label>
+          <div className="audit-actions"><button className="primary-button" type="submit"><Search size={16} /> Filtrar</button><button className="secondary-button" type="button" onClick={() => { setAuditFilters(emptyAuditFilters); loadAuditMessages(emptyAuditFilters) }}><RefreshCw size={16} /> Limpar</button><button className="secondary-button" type="button" onClick={exportAuditCsv} disabled={auditMessages.length === 0}>Export CSV</button></div>
+        </form>
+        <div className="card table-card audit-table-card">
+          <div className="table-meta"><strong>{auditLoading ? 'Carregando auditoria...' : 'Mensagens gravadas'}</strong><span>{auditMessages.length} registro(s)</span></div>
+          <table className="audit-table">
+            <thead><tr><th>Horário</th><th>Grupo</th><th>Contato</th><th>Status</th><th>Classificação</th><th>Risco</th><th>Mensagem</th></tr></thead>
+            <tbody>{auditMessages.length === 0 ? <tr><td colSpan={7}>Nenhuma mensagem encontrada para os filtros atuais.</td></tr> : auditMessages.map((item) => (
+              <tr key={item.id}>
+                <td>{item.horario}</td><td><strong>{item.grupo || '—'}</strong><small>{item.cliente || 'Cliente pendente'}</small></td><td>{item.contato || '—'}</td>
+                <td><span className="pill neutral">{item.status || '—'}</span></td><td>{item.classificacao || '—'}</td><td>{item.risco || '—'}</td><td>{item.mensagem || <span className="muted">sem texto</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </main>
+    )
+  }
+
   function renderDashboard() {
     return (
       <main className="content-shell">
@@ -626,6 +751,7 @@ function App() {
   function renderContent() {
     if (screen === 'usuarios') return renderUsers()
     if (screen === 'clientesGrupos') return renderClientGroups()
+    if (screen === 'audit') return renderAudit()
     return renderDashboard()
   }
 
@@ -649,9 +775,9 @@ function App() {
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
         <div className="sidebar-brand"><img className="sidebar-logo" src="/brand/logo-icon.png" alt="CrossDo" /><div><strong>Agent CrossDo</strong><span>Cross Agent</span></div></div>
-        <nav className="side-nav"><button className={screen === 'dashboard' ? 'active' : ''} onClick={() => setScreen('dashboard')}><Home size={18} /> <span>Dashboard</span></button><button className="nav-parent" onClick={() => setCadastrosOpen(!cadastrosOpen)}><Users size={18} /> <span>Cadastros</span> <ChevronDown size={16} className={cadastrosOpen ? 'rotate' : ''} /></button>{cadastrosOpen && <div className="submenu"><button className={screen === 'usuarios' ? 'active' : ''} onClick={() => setScreen('usuarios')}><UserCog size={17} /> <span>Usuários</span></button><button className={screen === 'clientesGrupos' ? 'active' : ''} onClick={() => setScreen('clientesGrupos')}><Building2 size={17} /> <span>Clientes/Grupos</span></button></div>}</nav>
+        <nav className="side-nav"><button className={screen === 'dashboard' ? 'active' : ''} onClick={() => setScreen('dashboard')}><Home size={18} /> <span>Dashboard</span></button><button className="nav-parent" onClick={() => setCadastrosOpen(!cadastrosOpen)}><Users size={18} /> <span>Cadastros</span> <ChevronDown size={16} className={cadastrosOpen ? 'rotate' : ''} /></button>{cadastrosOpen && <div className="submenu"><button className={screen === 'usuarios' ? 'active' : ''} onClick={() => setScreen('usuarios')}><UserCog size={17} /> <span>Usuários</span></button><button className={screen === 'clientesGrupos' ? 'active' : ''} onClick={() => setScreen('clientesGrupos')}><Building2 size={17} /> <span>Clientes/Grupos</span></button><button className={screen === 'audit' ? 'active' : ''} onClick={() => setScreen('audit')}><Search size={17} /> <span>Audit</span></button></div>}</nav>
       </aside>
-      <section className="main-area"><header className="topbar"><div className="topbar-left"><button className="icon-button" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Alternar menu"><Menu size={20} /></button><div><strong>Agent CrossDo</strong><span>Nome: Henrique Andrade • Setor: Diretoria / Cross Agent</span></div></div><div className="topbar-actions"><button title="Ajuda" type="button" onClick={() => window.open('https://github.com/henriqueandrade142-cell/agent-crossdo-app', '_blank', 'noopener,noreferrer')}><HelpCircle size={17} /> <span>Ajuda</span></button><button title="Atualizar" type="button" onClick={() => window.location.reload()}><RefreshCw size={17} /> <span>Atualizar</span></button><button title="Trocar senha" type="button" onClick={() => notify('Solicitação registrada.')}><KeyRound size={17} /> <span>Trocar senha</span></button><button title="Sair" type="button" onClick={() => setAuthenticated(false)}><LogOut size={17} /> <span>Sair</span></button></div></header>{flash && <div className="flash-message">{flash}</div>}{renderContent()}</section>
+      <section className="main-area"><header className="topbar"><div className="topbar-left"><button className="icon-button" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Alternar menu"><Menu size={20} /></button><div><strong>Agent CrossDo</strong><span>Nome: Henrique Andrade • Setor: Diretoria / Cross Agent</span></div></div><div className="topbar-actions"><button title="Ajuda" type="button" onClick={() => window.open('https://github.com/henriqueandrade142-cell/agent-crossdo-app', '_blank', 'noopener,noreferrer')}><HelpCircle size={17} /> <span>Ajuda</span></button><button title="Atualizar" type="button" onClick={() => window.location.reload()}><RefreshCw size={17} /> <span>Atualizar</span></button><button title="Trocar senha" type="button" onClick={() => notify('Solicitação registrada.')}><KeyRound size={17} /> <span>Trocar senha</span></button><button title="Sair" type="button" onClick={() => { window.localStorage.removeItem(AUTH_KEY); setAuthenticated(false) }}><LogOut size={17} /> <span>Sair</span></button></div></header>{flash && <div className="flash-message">{flash}</div>}{renderContent()}</section>
     </div>
   )
 }
