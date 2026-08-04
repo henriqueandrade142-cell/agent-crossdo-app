@@ -58,6 +58,9 @@ type ClientGroupRecord = {
   crossAgentAdicionado: boolean
   agentAtivo: boolean
   funcionalidades: string[]
+  wmsApiKeyUsuario: string
+  wmsApiKey: string
+  wmsApiKeySet: boolean
   observacoes: string
   origemCadastro: 'n8n' | 'manual'
   contatos: GroupContact[]
@@ -114,6 +117,9 @@ const emptyClientGroup: ClientGroupRecord = {
   crossAgentAdicionado: false,
   agentAtivo: false,
   funcionalidades: [],
+  wmsApiKeyUsuario: '',
+  wmsApiKey: '',
+  wmsApiKeySet: false,
   observacoes: '',
   origemCadastro: 'manual',
   contatos: [],
@@ -134,6 +140,9 @@ function normalizeClientGroupRecord(record: Partial<ClientGroupRecord>): ClientG
     crossAgentAdicionado: Boolean(record.crossAgentAdicionado),
     agentAtivo: Boolean(record.agentAtivo),
     funcionalidades: Array.isArray(record.funcionalidades) ? record.funcionalidades : [],
+    wmsApiKeyUsuario: record.wmsApiKeyUsuario || '',
+    wmsApiKey: '',
+    wmsApiKeySet: Boolean(record.wmsApiKeySet),
     contatos: Array.isArray(record.contatos) ? record.contatos : [],
   }
 }
@@ -320,7 +329,7 @@ function App() {
   const filteredClientGroups = clientGroups.filter((record) => {
     const term = clientSearch.trim().toLowerCase()
     if (!term) return true
-    return [record.nomeGrupo, record.idGrupo, record.nomeCliente, record.documento, record.responsavelCliente, record.unidade, record.demandaMonitorada ? 'demanda monitorada' : '', record.statusGrupo].some((value) => String(value).toLowerCase().includes(term))
+    return [record.nomeGrupo, record.idGrupo, record.nomeCliente, record.documento, record.responsavelCliente, record.unidade, record.wmsApiKeyUsuario, record.demandaMonitorada ? 'demanda monitorada' : '', record.statusGrupo].some((value) => String(value).toLowerCase().includes(term))
   })
 
   const activeUsers = users.filter((user) => user.status === 'Ativo').length
@@ -466,7 +475,7 @@ function App() {
       notify('Informe um CNPJ válido.')
       return
     }
-    const record = normalizeClientGroupRecord({ ...clientGroupForm, documento: formatCnpj(clientGroupForm.documento), emailResponsavel: clientGroupForm.emailResponsavel.trim().toLowerCase(), telefoneResponsavel: formatWhatsapp(clientGroupForm.telefoneResponsavel) })
+    const record = normalizeClientGroupRecord({ ...clientGroupForm, documento: formatCnpj(clientGroupForm.documento), emailResponsavel: clientGroupForm.emailResponsavel.trim().toLowerCase(), telefoneResponsavel: formatWhatsapp(clientGroupForm.telefoneResponsavel), wmsApiKeyUsuario: clientGroupForm.wmsApiKeyUsuario.trim() })
     try {
       const saved = await putJson<ClientGroupRecord>(`/api/v1/grupos-clientes/${record.id}`, record)
       updateClientGroupState(saved)
@@ -570,6 +579,9 @@ function App() {
           <label><span>Responsável do cliente</span><input value={clientGroupForm.responsavelCliente} onChange={(event) => setClientGroupForm({ ...clientGroupForm, responsavelCliente: event.target.value })} /></label>
           <label><span>E-mail do responsável</span><input type="email" inputMode="email" autoComplete="email" value={clientGroupForm.emailResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, emailResponsavel: event.target.value.trim().toLowerCase() })} /></label>
           <label><span>WhatsApp do responsável</span><input inputMode="tel" autoComplete="tel" placeholder="(31) 99999-9999" value={clientGroupForm.telefoneResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, telefoneResponsavel: formatWhatsapp(event.target.value) })} /></label>
+          <label><span>Usuário da API key e-Ship</span><input placeholder="Usuário/identificador usado no WMS" value={clientGroupForm.wmsApiKeyUsuario} onChange={(event) => setClientGroupForm({ ...clientGroupForm, wmsApiKeyUsuario: event.target.value })} /></label>
+          <label><span>API key/token WMS e-Ship</span><input type="password" autoComplete="off" placeholder={clientGroupForm.wmsApiKeySet ? 'Token já configurado — preencher para substituir' : 'Cole a API key do cliente'} value={clientGroupForm.wmsApiKey} onChange={(event) => setClientGroupForm({ ...clientGroupForm, wmsApiKey: event.target.value })} /></label>
+          <div className="span-2 secret-note">A API key fica salva apenas no backend para o agente consultar o WMS com o acesso correto do cliente. Ela não é exibida novamente na tela.</div>
           <label className="check-label"><input type="checkbox" checked={clientGroupForm.crossAgentAdicionado} onChange={(event) => setClientGroupForm({ ...clientGroupForm, crossAgentAdicionado: event.target.checked })} /><span>Número do Cross Agent adicionado ao grupo</span></label>
           <label className="check-label"><input type="checkbox" checked={clientGroupForm.demandaMonitorada} onChange={(event) => setClientGroupForm({ ...clientGroupForm, demandaMonitorada: event.target.checked })} /><span>Monitorar demanda no Cross Audit</span></label>
           <label className="check-label"><input type="checkbox" checked={clientGroupForm.agentAtivo} onChange={(event) => setClientGroupForm({ ...clientGroupForm, agentAtivo: event.target.checked })} /><span>Agent ativo para este grupo</span></label>

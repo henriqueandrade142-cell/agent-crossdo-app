@@ -41,7 +41,7 @@ class JsonGroupRepository:
         if groups != data.get("groups", []):
             data["groups"] = groups
             self._write(data)
-        return groups
+        return [self._public_group(group) for group in groups]
 
     def get_by_id(self, record_id: str) -> dict | None:
         return next((g for g in self.list_groups() if g.get("id") == record_id), None)
@@ -93,7 +93,7 @@ class JsonGroupRepository:
             "nomeCliente", "documento", "responsavelCliente", "emailResponsavel",
             "telefoneResponsavel", "unidade", "demandaMonitorada",
             "crossAgentAdicionado", "agentAtivo", "funcionalidades",
-            "observacoes", "contatos", "statusGrupo",
+            "wmsApiKeyUsuario", "observacoes", "contatos", "statusGrupo",
         }
         with self._lock:
             data = self._read()
@@ -102,9 +102,11 @@ class JsonGroupRepository:
                     for key in allowed:
                         if key in payload:
                             group[key] = payload[key]
+                    if payload.get("wmsApiKey"):
+                        group["wmsApiKey"] = str(payload["wmsApiKey"]).strip()
                     group["updatedAt"] = _now()
                     self._write(data)
-                    return group
+                    return self._public_group(group)
         raise KeyError("Cadastro não encontrado")
 
     def _blank_record(self, nome_grupo: str, id_grupo: str) -> dict:
@@ -123,6 +125,8 @@ class JsonGroupRepository:
             "crossAgentAdicionado": False,
             "agentAtivo": False,
             "funcionalidades": [],
+            "wmsApiKeyUsuario": "",
+            "wmsApiKey": "",
             "observacoes": "",
             "origemCadastro": "n8n",
             "contatos": [],
@@ -138,10 +142,19 @@ class JsonGroupRepository:
         base.setdefault("crossAgentAdicionado", False)
         base.setdefault("agentAtivo", False)
         base.setdefault("funcionalidades", [])
+        base.setdefault("wmsApiKeyUsuario", "")
+        base.setdefault("wmsApiKey", "")
         base.pop("sla", None)
         base.pop("regraAtendimento", None)
         base["contatos"] = [self._normalize_contact(c) for c in base.get("contatos", [])]
         return base
+
+    def _public_group(self, group: dict) -> dict:
+        public = dict(group)
+        api_key = str(public.pop("wmsApiKey", "") or "")
+        public["wmsApiKey"] = ""
+        public["wmsApiKeySet"] = bool(api_key)
+        return public
 
     def _normalize_contact(self, contact: dict) -> dict:
         whatsapp = str(contact.get("whatsapp") or contact.get("numero") or contact.get("phone") or contact.get("id") or "")

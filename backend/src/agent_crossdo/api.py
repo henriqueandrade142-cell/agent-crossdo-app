@@ -80,6 +80,8 @@ class GrupoUpdateRequest(BaseModel):
     crossAgentAdicionado: bool = False
     agentAtivo: bool = False
     funcionalidades: list[str] = []
+    wmsApiKeyUsuario: str = ""
+    wmsApiKey: str = ""
     observacoes: str = ""
     statusGrupo: str = "Ativo"
     contatos: list[dict] = []
