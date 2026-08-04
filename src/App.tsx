@@ -244,7 +244,7 @@ function App() {
     return (
       <div className="login-page">
         <section className="login-brand">
-          <div className="brand-mark">AC</div>
+          <img className="login-logo" src="/agent-crossdo-app/brand/logo-icon.png" alt="CrossDo" />
           <p>Portal de atendimento e auditoria</p>
           <h1>Agent CrossDo</h1>
           <span>Mesmo padrão visual do Portal CrossDo, adaptado para o projeto Cross Agent.</span>
@@ -254,6 +254,7 @@ function App() {
           <div>
             <p className="eyebrow">Acesso restrito</p>
             <h2>Entrar no painel</h2>
+            <span className="login-subtitle">Acesse com seu e-mail e senha</span>
           </div>
           <label>
             <span>E-mail</span>
@@ -275,7 +276,7 @@ function App() {
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark small">AC</div>
+          <img className="sidebar-logo" src="/agent-crossdo-app/brand/logo-icon.png" alt="CrossDo" />
           <div>
             <strong>Agent CrossDo</strong>
             <span>Cross Agent</span>
@@ -313,10 +314,10 @@ function App() {
           </div>
 
           <div className="topbar-actions">
-            <button><HelpCircle size={17} /> Ajuda</button>
-            <button><RefreshCw size={17} /> Atualizar</button>
-            <button><KeyRound size={17} /> Trocar senha</button>
-            <button onClick={() => setAuthenticated(false)}><LogOut size={17} /> Sair</button>
+            <button title="Ajuda"><HelpCircle size={17} /> <span>Ajuda</span></button>
+            <button title="Atualizar"><RefreshCw size={17} /> <span>Atualizar</span></button>
+            <button title="Trocar senha"><KeyRound size={17} /> <span>Trocar senha</span></button>
+            <button title="Sair" onClick={() => setAuthenticated(false)}><LogOut size={17} /> <span>Sair</span></button>
           </div>
         </header>
         {renderContent()}
