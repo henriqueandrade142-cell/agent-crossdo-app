@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Building2,
-  ChevronDown,
   Edit3,
   HelpCircle,
   Home,
@@ -15,7 +14,6 @@ import {
   Search,
   Trash2,
   UserCog,
-  Users,
 } from 'lucide-react'
 import './App.css'
 
@@ -173,7 +171,7 @@ function normalizeClientGroupRecord(record: Partial<ClientGroupRecord>): ClientG
     agentAtivo: Boolean(record.agentAtivo),
     funcionalidades: Array.isArray(record.funcionalidades) ? record.funcionalidades : [],
     wmsApiKeyUsuario: record.wmsApiKeyUsuario || '',
-    wmsApiKey: '',
+    wmsApiKey: record.wmsApiKey || '',
     wmsApiKeySet: Boolean(record.wmsApiKeySet),
     contatos: Array.isArray(record.contatos) ? record.contatos : [],
   }
@@ -284,7 +282,6 @@ function App() {
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
   const [screen, setScreen] = useState<Screen>('dashboard')
-  const [cadastrosOpen, setCadastrosOpen] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [flash, setFlash] = useState('')
 
@@ -775,7 +772,14 @@ function App() {
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
         <div className="sidebar-brand"><img className="sidebar-logo" src="/brand/logo-icon.png" alt="CrossDo" /><div><strong>Agent CrossDo</strong><span>Cross Agent</span></div></div>
-        <nav className="side-nav"><button className={screen === 'dashboard' ? 'active' : ''} onClick={() => setScreen('dashboard')}><Home size={18} /> <span>Dashboard</span></button><button className="nav-parent" onClick={() => setCadastrosOpen(!cadastrosOpen)}><Users size={18} /> <span>Cadastros</span> <ChevronDown size={16} className={cadastrosOpen ? 'rotate' : ''} /></button>{cadastrosOpen && <div className="submenu"><button className={screen === 'usuarios' ? 'active' : ''} onClick={() => setScreen('usuarios')}><UserCog size={17} /> <span>Usuários</span></button><button className={screen === 'clientesGrupos' ? 'active' : ''} onClick={() => setScreen('clientesGrupos')}><Building2 size={17} /> <span>Clientes/Grupos</span></button><button className={screen === 'audit' ? 'active' : ''} onClick={() => setScreen('audit')}><Search size={17} /> <span>Audit</span></button></div>}</nav>
+        <nav className="side-nav">
+          <button className={screen === 'dashboard' ? 'active' : ''} onClick={() => setScreen('dashboard')}><Home size={18} /> <span>Dashboard</span></button>
+          <div className="nav-section-label">Cadastros</div>
+          <button className={screen === 'usuarios' ? 'active' : ''} onClick={() => setScreen('usuarios')}><UserCog size={17} /> <span>Usuários</span></button>
+          <button className={screen === 'clientesGrupos' ? 'active' : ''} onClick={() => setScreen('clientesGrupos')}><Building2 size={17} /> <span>Clientes/Grupos</span></button>
+          <div className="nav-section-label">Operacional</div>
+          <button className={screen === 'audit' ? 'active' : ''} onClick={() => setScreen('audit')}><Search size={17} /> <span>Audit</span></button>
+        </nav>
       </aside>
       <section className="main-area"><header className="topbar"><div className="topbar-left"><button className="icon-button" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Alternar menu"><Menu size={20} /></button><div><strong>Agent CrossDo</strong><span>Nome: Henrique Andrade • Setor: Diretoria / Cross Agent</span></div></div><div className="topbar-actions"><button title="Ajuda" type="button" onClick={() => window.open('https://github.com/henriqueandrade142-cell/agent-crossdo-app', '_blank', 'noopener,noreferrer')}><HelpCircle size={17} /> <span>Ajuda</span></button><button title="Atualizar" type="button" onClick={() => window.location.reload()}><RefreshCw size={17} /> <span>Atualizar</span></button><button title="Trocar senha" type="button" onClick={() => notify('Solicitação registrada.')}><KeyRound size={17} /> <span>Trocar senha</span></button><button title="Sair" type="button" onClick={() => { window.localStorage.removeItem(AUTH_KEY); setAuthenticated(false) }}><LogOut size={17} /> <span>Sair</span></button></div></header>{flash && <div className="flash-message">{flash}</div>}{renderContent()}</section>
     </div>
