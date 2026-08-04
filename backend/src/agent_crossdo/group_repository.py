@@ -36,7 +36,12 @@ class JsonGroupRepository:
         self.path.chmod(0o600)
 
     def list_groups(self) -> list[dict]:
-        return self._read().get("groups", [])
+        data = self._read()
+        groups = [self._normalize_group(group) for group in data.get("groups", [])]
+        if groups != data.get("groups", []):
+            data["groups"] = groups
+            self._write(data)
+        return groups
 
     def get_by_id(self, record_id: str) -> dict | None:
         return next((g for g in self.list_groups() if g.get("id") == record_id), None)
@@ -86,8 +91,9 @@ class JsonGroupRepository:
     def update_business_fields(self, record_id: str, payload: dict) -> dict:
         allowed = {
             "nomeCliente", "documento", "responsavelCliente", "emailResponsavel",
-            "telefoneResponsavel", "unidade", "demandaMonitorada", "sla",
-            "regraAtendimento", "observacoes", "contatos", "statusGrupo",
+            "telefoneResponsavel", "unidade", "demandaMonitorada",
+            "crossAgentAdicionado", "agentAtivo", "funcionalidades",
+            "observacoes", "contatos", "statusGrupo",
         }
         with self._lock:
             data = self._read()
@@ -113,15 +119,29 @@ class JsonGroupRepository:
             "emailResponsavel": "",
             "telefoneResponsavel": "",
             "unidade": "Nova Lima/MG",
-            "demandaMonitorada": "",
-            "sla": "",
-            "regraAtendimento": "",
+            "demandaMonitorada": False,
+            "crossAgentAdicionado": False,
+            "agentAtivo": False,
+            "funcionalidades": [],
             "observacoes": "",
             "origemCadastro": "n8n",
             "contatos": [],
             "createdAt": _now(),
             "updatedAt": _now(),
         }
+
+    def _normalize_group(self, group: dict) -> dict:
+        base = self._blank_record(str(group.get("nomeGrupo") or group.get("idGrupo") or ""), str(group.get("idGrupo") or ""))
+        base.update(group)
+        if isinstance(base.get("demandaMonitorada"), str):
+            base["demandaMonitorada"] = bool(base["demandaMonitorada"].strip())
+        base.setdefault("crossAgentAdicionado", False)
+        base.setdefault("agentAtivo", False)
+        base.setdefault("funcionalidades", [])
+        base.pop("sla", None)
+        base.pop("regraAtendimento", None)
+        base["contatos"] = [self._normalize_contact(c) for c in base.get("contatos", [])]
+        return base
 
     def _normalize_contact(self, contact: dict) -> dict:
         whatsapp = str(contact.get("whatsapp") or contact.get("numero") or contact.get("phone") or contact.get("id") or "")

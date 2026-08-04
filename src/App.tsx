@@ -54,9 +54,10 @@ type ClientGroupRecord = {
   emailResponsavel: string
   telefoneResponsavel: string
   unidade: string
-  demandaMonitorada: string
-  sla: string
-  regraAtendimento: string
+  demandaMonitorada: boolean
+  crossAgentAdicionado: boolean
+  agentAtivo: boolean
+  funcionalidades: string[]
   observacoes: string
   origemCadastro: 'n8n' | 'manual'
   contatos: GroupContact[]
@@ -109,12 +110,32 @@ const emptyClientGroup: ClientGroupRecord = {
   emailResponsavel: '',
   telefoneResponsavel: '',
   unidade: 'Nova Lima/MG',
-  demandaMonitorada: '',
-  sla: '',
-  regraAtendimento: '',
+  demandaMonitorada: false,
+  crossAgentAdicionado: false,
+  agentAtivo: false,
+  funcionalidades: [],
   observacoes: '',
   origemCadastro: 'manual',
   contatos: [],
+}
+
+const FUNCIONALIDADES_AGENT = [
+  'Cross Audit — registrar mensagens no banco',
+  'Classificação automática de mensagens',
+  'Relatório interno de grupo não mapeado',
+  'Sugestão de resposta para aprovação humana',
+]
+
+function normalizeClientGroupRecord(record: Partial<ClientGroupRecord>): ClientGroupRecord {
+  return {
+    ...emptyClientGroup,
+    ...record,
+    demandaMonitorada: Boolean(record.demandaMonitorada),
+    crossAgentAdicionado: Boolean(record.crossAgentAdicionado),
+    agentAtivo: Boolean(record.agentAtivo),
+    funcionalidades: Array.isArray(record.funcionalidades) ? record.funcionalidades : [],
+    contatos: Array.isArray(record.contatos) ? record.contatos : [],
+  }
 }
 
 function generateId(prefix: string) {
@@ -139,6 +160,28 @@ function isValidWhatsapp(value: string) {
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
+
+function formatCnpj(value: string) {
+  const digits = normalizePhone(value).slice(0, 14)
+  return digits
+    .replace(/^(\d{2})(\d)/, '$1.$2')
+    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1/$2')
+    .replace(/(\d{4})(\d)/, '$1-$2')
+}
+
+function isValidCnpj(value: string) {
+  const cnpj = normalizePhone(value)
+  if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)) return false
+  const calc = (base: string, factors: number[]) => {
+    const sum = factors.reduce((acc, factor, index) => acc + Number(base[index]) * factor, 0)
+    const mod = sum % 11
+    return mod < 2 ? 0 : 11 - mod
+  }
+  const digit1 = calc(cnpj.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+  const digit2 = calc(cnpj.slice(0, 13), [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+  return digit1 === Number(cnpj[12]) && digit2 === Number(cnpj[13])
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -219,7 +262,7 @@ function App() {
     setUsers(hasMaster ? normalizedUsers.map((user) => (user.id === masterUser.id ? masterUser : user)) : [masterUser, ...normalizedUsers])
 
     getJson<{ items: ClientGroupRecord[] }>('/api/v1/grupos-clientes')
-      .then((data) => setClientGroups(data.items || []))
+      .then((data) => setClientGroups((data.items || []).map(normalizeClientGroupRecord)))
       .catch(() => notify('Não foi possível carregar os grupos identificados pelo n8n.'))
   }, [])
 
@@ -277,12 +320,12 @@ function App() {
   const filteredClientGroups = clientGroups.filter((record) => {
     const term = clientSearch.trim().toLowerCase()
     if (!term) return true
-    return [record.nomeGrupo, record.idGrupo, record.nomeCliente, record.documento, record.responsavelCliente, record.unidade, record.demandaMonitorada, record.statusGrupo].some((value) => value.toLowerCase().includes(term))
+    return [record.nomeGrupo, record.idGrupo, record.nomeCliente, record.documento, record.responsavelCliente, record.unidade, record.demandaMonitorada ? 'demanda monitorada' : '', record.statusGrupo].some((value) => String(value).toLowerCase().includes(term))
   })
 
   const activeUsers = users.filter((user) => user.status === 'Ativo').length
   const activeGroups = clientGroups.filter((group) => group.statusGrupo === 'Ativo').length
-  const pendingGroups = clientGroups.filter((group) => !group.nomeCliente.trim() || !group.demandaMonitorada.trim()).length
+  const pendingGroups = clientGroups.filter((group) => !group.nomeCliente.trim() || !group.crossAgentAdicionado).length
 
   const stats = useMemo(
     () => [
@@ -419,7 +462,11 @@ function App() {
       notify('Informe um WhatsApp de responsável válido com DDD.')
       return
     }
-    const record = { ...clientGroupForm, emailResponsavel: clientGroupForm.emailResponsavel.trim().toLowerCase(), telefoneResponsavel: formatWhatsapp(clientGroupForm.telefoneResponsavel) }
+    if (clientGroupForm.documento.trim() && !isValidCnpj(clientGroupForm.documento)) {
+      notify('Informe um CNPJ válido.')
+      return
+    }
+    const record = normalizeClientGroupRecord({ ...clientGroupForm, documento: formatCnpj(clientGroupForm.documento), emailResponsavel: clientGroupForm.emailResponsavel.trim().toLowerCase(), telefoneResponsavel: formatWhatsapp(clientGroupForm.telefoneResponsavel) })
     try {
       const saved = await putJson<ClientGroupRecord>(`/api/v1/grupos-clientes/${record.id}`, record)
       updateClientGroupState(saved)
@@ -518,17 +565,18 @@ function App() {
           <label><span>ID do grupo</span><input value={clientGroupForm.idGrupo} readOnly /></label>
           <label><span>Status do grupo</span><input value={clientGroupForm.statusGrupo} readOnly /></label>
           <label><span>Nome do cliente</span><input value={clientGroupForm.nomeCliente} onChange={(event) => setClientGroupForm({ ...clientGroupForm, nomeCliente: event.target.value })} /></label>
-          <label><span>CNPJ / CPF</span><input value={clientGroupForm.documento} onChange={(event) => setClientGroupForm({ ...clientGroupForm, documento: event.target.value })} /></label>
+          <label><span>CNPJ</span><input inputMode="numeric" placeholder="00.000.000/0000-00" value={clientGroupForm.documento} onChange={(event) => setClientGroupForm({ ...clientGroupForm, documento: formatCnpj(event.target.value) })} /></label>
           <label><span>Unidade</span><select value={clientGroupForm.unidade} onChange={(event) => setClientGroupForm({ ...clientGroupForm, unidade: event.target.value })}><option>Nova Lima/MG</option><option>Barueri/SP</option><option>Todas</option></select></label>
           <label><span>Responsável do cliente</span><input value={clientGroupForm.responsavelCliente} onChange={(event) => setClientGroupForm({ ...clientGroupForm, responsavelCliente: event.target.value })} /></label>
           <label><span>E-mail do responsável</span><input type="email" inputMode="email" autoComplete="email" value={clientGroupForm.emailResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, emailResponsavel: event.target.value.trim().toLowerCase() })} /></label>
           <label><span>WhatsApp do responsável</span><input inputMode="tel" autoComplete="tel" placeholder="(31) 99999-9999" value={clientGroupForm.telefoneResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, telefoneResponsavel: formatWhatsapp(event.target.value) })} /></label>
-          <label><span>Demanda monitorada</span><input value={clientGroupForm.demandaMonitorada} onChange={(event) => setClientGroupForm({ ...clientGroupForm, demandaMonitorada: event.target.value })} /></label>
-          <label><span>SLA esperado</span><input value={clientGroupForm.sla} onChange={(event) => setClientGroupForm({ ...clientGroupForm, sla: event.target.value })} /></label>
-          <label className="span-2"><span>Regra de atendimento</span><textarea value={clientGroupForm.regraAtendimento} onChange={(event) => setClientGroupForm({ ...clientGroupForm, regraAtendimento: event.target.value })} /></label>
-          <label className="span-2"><span>Observações</span><textarea value={clientGroupForm.observacoes} onChange={(event) => setClientGroupForm({ ...clientGroupForm, observacoes: event.target.value })} /></label>
+          <label className="check-label"><input type="checkbox" checked={clientGroupForm.crossAgentAdicionado} onChange={(event) => setClientGroupForm({ ...clientGroupForm, crossAgentAdicionado: event.target.checked })} /><span>Número do Cross Agent adicionado ao grupo</span></label>
+          <label className="check-label"><input type="checkbox" checked={clientGroupForm.demandaMonitorada} onChange={(event) => setClientGroupForm({ ...clientGroupForm, demandaMonitorada: event.target.checked })} /><span>Monitorar demanda no Cross Audit</span></label>
+          <label className="check-label"><input type="checkbox" checked={clientGroupForm.agentAtivo} onChange={(event) => setClientGroupForm({ ...clientGroupForm, agentAtivo: event.target.checked })} /><span>Agent ativo para este grupo</span></label>
+          <div className="span-2 feature-box"><div className="feature-box-header"><strong>Funcionalidades habilitadas</strong><button className="secondary-button" type="button" onClick={() => setClientGroupForm({ ...clientGroupForm, funcionalidades: clientGroupForm.funcionalidades.length === FUNCIONALIDADES_AGENT.length ? [] : FUNCIONALIDADES_AGENT })}>{clientGroupForm.funcionalidades.length === FUNCIONALIDADES_AGENT.length ? 'Desmarcar todas' : 'Selecionar todas'}</button></div>{FUNCIONALIDADES_AGENT.map((feature) => <label className="check-label" key={feature}><input type="checkbox" checked={clientGroupForm.funcionalidades.includes(feature)} onChange={(event) => setClientGroupForm({ ...clientGroupForm, funcionalidades: event.target.checked ? [...clientGroupForm.funcionalidades, feature] : clientGroupForm.funcionalidades.filter((item) => item !== feature) })} /><span>{feature}</span></label>)}</div>
+          <label className="span-2"><span>Observações informativas</span><textarea value={clientGroupForm.observacoes} onChange={(event) => setClientGroupForm({ ...clientGroupForm, observacoes: event.target.value })} /></label>
           <div className="contact-panel span-2">
-            <h4>Contatos do grupo</h4>
+            <h4>Contatos do grupo</h4><p className="muted">Lista atualizada automaticamente a partir dos participantes capturados no n8n. Complete nome, função, e-mail e tipo quando necessário.</p>
             <div className="contact-list">
               {clientGroupForm.contatos.length === 0 ? <p className="muted">Nenhum contato cadastrado.</p> : clientGroupForm.contatos.map((contact) => (
                 <div className="contact-row" key={contact.id}>
@@ -539,7 +587,7 @@ function App() {
             </div>
           </div>
           <div className="contact-form span-2">
-            <label><span>WhatsApp</span><input inputMode="tel" autoComplete="tel" placeholder="(31) 99999-9999" value={contactForm.whatsapp} onChange={(event) => setContactForm({ ...contactForm, whatsapp: formatWhatsapp(event.target.value) })} onBlur={() => setContactForm(autofillInternalContact(contactForm))} /></label>
+            <label><span>WhatsApp</span><input inputMode="tel" autoComplete="tel" value={contactForm.whatsapp} readOnly /></label>
             <label><span>Tipo</span><select value={contactForm.tipo} onChange={(event) => setContactForm(autofillInternalContact({ ...contactForm, tipo: event.target.value as ContactType }))}><option>Não definido</option><option>Interno</option><option>Externo</option></select></label>
             <label><span>Nome</span><input value={contactForm.nome} onChange={(event) => setContactForm({ ...contactForm, nome: event.target.value })} /></label>
             <label><span>Função</span><input value={contactForm.funcao} onChange={(event) => setContactForm({ ...contactForm, funcao: event.target.value })} /></label>

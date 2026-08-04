@@ -76,9 +76,10 @@ class GrupoUpdateRequest(BaseModel):
     emailResponsavel: str = ""
     telefoneResponsavel: str = ""
     unidade: str = "Nova Lima/MG"
-    demandaMonitorada: str = ""
-    sla: str = ""
-    regraAtendimento: str = ""
+    demandaMonitorada: bool = False
+    crossAgentAdicionado: bool = False
+    agentAtivo: bool = False
+    funcionalidades: list[str] = []
     observacoes: str = ""
     statusGrupo: str = "Ativo"
     contatos: list[dict] = []

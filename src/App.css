@@ -839,3 +839,42 @@ input[readonly] {
   background: #f8fafc;
   color: #52616f;
 }
+
+.check-label {
+  display: flex !important;
+  align-items: center;
+  gap: 10px !important;
+  border: 1px solid var(--cd-border);
+  border-radius: var(--cd-radius);
+  padding: 11px 12px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.check-label input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--cd-primary);
+  flex: 0 0 auto;
+}
+
+.feature-box {
+  border: 1px solid var(--cd-border);
+  border-radius: var(--cd-radius);
+  padding: 14px;
+  background: #fff;
+  display: grid;
+  gap: 10px;
+}
+
+.feature-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.feature-box-header strong {
+  color: var(--cd-fg);
+}
