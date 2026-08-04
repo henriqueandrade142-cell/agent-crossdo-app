@@ -149,7 +149,7 @@ async function sha256(value: string) {
 
 function App() {
   const [authenticated, setAuthenticated] = useState(false)
-  const [loginEmail, setLoginEmail] = useState(MASTER_EMAIL)
+  const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
   const [screen, setScreen] = useState<Screen>('dashboard')
