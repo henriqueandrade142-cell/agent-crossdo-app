@@ -19,55 +19,61 @@ import {
 } from 'lucide-react'
 import './App.css'
 
-type Screen = 'dashboard' | 'usuarios' | 'clientes' | 'gruposClientes'
+type Screen = 'dashboard' | 'usuarios' | 'clientesGrupos'
 type Status = 'Ativo' | 'Inativo'
+type ContactType = 'Interno' | 'Externo' | 'Não definido'
 
 type UserRecord = {
   id: string
   nome: string
   email: string
+  whatsapp: string
   setor: string
   perfil: 'Master' | 'Administrador' | 'Atendimento'
   status: Status
   protegido?: boolean
 }
 
-type ClientRecord = {
+type GroupContact = {
   id: string
-  nomeCliente: string
-  documento: string
-  responsavel: string
-  emailResponsavel: string
-  telefone: string
-  unidade: string
-  tipoDemanda: string
-  sla: string
-  status: Status
-  observacoes: string
+  nome: string
+  funcao: string
+  whatsapp: string
+  email: string
+  tipo: ContactType
 }
 
-type GroupClientRecord = {
+type ClientGroupRecord = {
   id: string
-  clienteId: string
   nomeGrupo: string
-  identificadorGrupo: string
+  idGrupo: string
+  statusGrupo: Status
+  nomeCliente: string
+  documento: string
+  responsavelCliente: string
+  emailResponsavel: string
+  telefoneResponsavel: string
   unidade: string
   demandaMonitorada: string
-  responsavelInterno: string
-  status: Status
+  sla: string
+  regraAtendimento: string
   observacoes: string
+  origemCadastro: 'n8n' | 'manual'
+  contatos: GroupContact[]
 }
 
 const MASTER_EMAIL = 'henrique.andrade142@gmail.com'
 const MASTER_PASSWORD_HASH = '4cfd8b11c5d6d57f420889084a45b4a808f4c4ecc21c3abc6aa903fc99e5536a'
 const USERS_KEY = 'agent_crossdo_users'
-const CLIENTS_KEY = 'agent_crossdo_clients'
-const GROUPS_KEY = 'agent_crossdo_groups_clients'
+const CLIENT_GROUPS_KEY = 'agent_crossdo_client_groups'
+const LEGACY_CLIENTS_KEY = 'agent_crossdo_clients'
+const LEGACY_GROUPS_KEY = 'agent_crossdo_groups_clients'
 
 const masterUser: UserRecord = {
   id: 'USR-0001',
   nome: 'Henrique Andrade',
   email: MASTER_EMAIL,
+  whatsapp: '',
   setor: 'Diretoria / Cross Agent',
   perfil: 'Master',
   status: 'Ativo',
@@ -78,39 +84,46 @@ const emptyUser: UserRecord = {
   id: '',
   nome: '',
   email: '',
+  whatsapp: '',
   setor: '',
   perfil: 'Atendimento',
   status: 'Ativo',
 }
 
-const emptyClient: ClientRecord = {
+const emptyContact: GroupContact = {
   id: '',
-  nomeCliente: '',
-  documento: '',
-  responsavel: '',
-  emailResponsavel: '',
-  telefone: '',
-  unidade: 'Nova Lima/MG',
-  tipoDemanda: 'Atendimento e suporte operacional via Cross Agent',
-  sla: '',
-  status: 'Ativo',
-  observacoes: '',
+  nome: '',
+  funcao: '',
+  whatsapp: '',
+  email: '',
+  tipo: 'Não definido',
 }
 
-const emptyGroupClient: GroupClientRecord = {
+const emptyClientGroup: ClientGroupRecord = {
   id: '',
-  clienteId: '',
   nomeGrupo: '',
-  identificadorGrupo: '',
+  idGrupo: '',
+  statusGrupo: 'Ativo',
+  nomeCliente: '',
+  documento: '',
+  responsavelCliente: '',
+  emailResponsavel: '',
+  telefoneResponsavel: '',
   unidade: 'Nova Lima/MG',
   demandaMonitorada: '',
-  responsavelInterno: 'Henrique Andrade',
-  status: 'Ativo',
+  sla: '',
+  regraAtendimento: '',
   observacoes: '',
+  origemCadastro: 'manual',
+  contatos: [],
 }
 
 function generateId(prefix: string) {
   return `${prefix}-${Date.now().toString(36).toUpperCase()}`
+}
+
+function normalizePhone(value: string) {
+  return value.replace(/\D/g, '')
 }
 
 function readStore<T>(key: string, fallback: T): T {
@@ -145,19 +158,49 @@ function App() {
   const [flash, setFlash] = useState('')
 
   const [users, setUsers] = useState<UserRecord[]>([masterUser])
-  const [clients, setClients] = useState<ClientRecord[]>([])
-  const [groupsClients, setGroupsClients] = useState<GroupClientRecord[]>([])
+  const [clientGroups, setClientGroups] = useState<ClientGroupRecord[]>([])
   const [userForm, setUserForm] = useState<UserRecord>(emptyUser)
-  const [clientForm, setClientForm] = useState<ClientRecord>(emptyClient)
-  const [groupForm, setGroupForm] = useState<GroupClientRecord>(emptyGroupClient)
+  const [clientGroupForm, setClientGroupForm] = useState<ClientGroupRecord>(emptyClientGroup)
+  const [contactForm, setContactForm] = useState<GroupContact>(emptyContact)
   const [userSearch, setUserSearch] = useState('')
+  const [clientSearch, setClientSearch] = useState('')
 
   useEffect(() => {
     const storedUsers = readStore<UserRecord[]>(USERS_KEY, [masterUser])
-    const hasMaster = storedUsers.some((user) => user.id === masterUser.id)
-    setUsers(hasMaster ? storedUsers.map((user) => (user.id === masterUser.id ? masterUser : user)) : [masterUser, ...storedUsers])
-    setClients(readStore<ClientRecord[]>(CLIENTS_KEY, []))
-    setGroupsClients(readStore<GroupClientRecord[]>(GROUPS_KEY, []))
+    const normalizedUsers = storedUsers.map((user) => ({ ...user, whatsapp: user.whatsapp ?? '' }))
+    const hasMaster = normalizedUsers.some((user) => user.id === masterUser.id)
+    setUsers(hasMaster ? normalizedUsers.map((user) => (user.id === masterUser.id ? masterUser : user)) : [masterUser, ...normalizedUsers])
+
+    const storedClientGroups = readStore<ClientGroupRecord[]>(CLIENT_GROUPS_KEY, [])
+    if (storedClientGroups.length) {
+      setClientGroups(storedClientGroups)
+      return
+    }
+
+    const legacyClients = readStore<Array<Record<string, string>>>(LEGACY_CLIENTS_KEY, [])
+    const legacyGroups = readStore<Array<Record<string, string>>>(LEGACY_GROUPS_KEY, [])
+    const migrated = legacyGroups.map((group) => {
+      const client = legacyClients.find((item) => item.id === group.clienteId)
+      return {
+        ...emptyClientGroup,
+        id: String(group.id || generateId('CG')),
+        nomeGrupo: String(group.nomeGrupo || ''),
+        idGrupo: String(group.identificadorGrupo || ''),
+        statusGrupo: (group.status as Status) || 'Ativo',
+        nomeCliente: String(client?.nomeCliente || ''),
+        documento: String(client?.documento || ''),
+        responsavelCliente: String(client?.responsavel || ''),
+        emailResponsavel: String(client?.emailResponsavel || ''),
+        telefoneResponsavel: String(client?.telefone || ''),
+        unidade: String(group.unidade || client?.unidade || 'Nova Lima/MG'),
+        demandaMonitorada: String(group.demandaMonitorada || client?.tipoDemanda || ''),
+        sla: String(client?.sla || ''),
+        observacoes: String(group.observacoes || client?.observacoes || ''),
+        origemCadastro: 'manual' as const,
+      }
+    })
+    setClientGroups(migrated)
+    if (migrated.length) writeStore(CLIENT_GROUPS_KEY, migrated)
   }, [])
 
   function notify(message: string) {
@@ -173,48 +216,122 @@ function App() {
     writeStore(USERS_KEY, normalized)
   }
 
-  function persistClients(next: ClientRecord[]) {
-    setClients(next)
-    writeStore(CLIENTS_KEY, next)
+  function persistClientGroups(next: ClientGroupRecord[]) {
+    setClientGroups(next)
+    writeStore(CLIENT_GROUPS_KEY, next)
   }
 
-  function persistGroups(next: GroupClientRecord[]) {
-    setGroupsClients(next)
-    writeStore(GROUPS_KEY, next)
+  function upsertGroupDetectedByN8n(payload: { nomeGrupo: string; idGrupo: string; contatos?: Array<Partial<GroupContact>> }) {
+    const existing = clientGroups.find((item) => item.idGrupo === payload.idGrupo)
+    const contacts = (payload.contatos ?? []).map((contact) => autofillInternalContact({
+      ...emptyContact,
+      id: contact.id || generateId('CTT'),
+      nome: contact.nome || '',
+      whatsapp: contact.whatsapp || '',
+      email: contact.email || '',
+      funcao: contact.funcao || '',
+      tipo: contact.tipo || 'Não definido',
+    }))
+
+    if (existing) {
+      persistClientGroups(clientGroups.map((item) => item.id === existing.id ? { ...item, nomeGrupo: payload.nomeGrupo, statusGrupo: 'Ativo', contatos: mergeContacts(item.contatos, contacts) } : item))
+      notify('Grupo atualizado pelo fluxo.')
+      return
+    }
+
+    const record: ClientGroupRecord = {
+      ...emptyClientGroup,
+      id: generateId('CG'),
+      nomeGrupo: payload.nomeGrupo,
+      idGrupo: payload.idGrupo,
+      statusGrupo: 'Inativo',
+      origemCadastro: 'n8n',
+      contatos: contacts,
+    }
+    persistClientGroups([record, ...clientGroups])
+    setClientGroupForm(record)
+    setScreen('clientesGrupos')
+    notify('Grupo identificado. Cadastro criado para completar.')
+  }
+
+  function markGroupRemovedByN8n(idGrupo: string) {
+    persistClientGroups(clientGroups.map((item) => item.idGrupo === idGrupo ? { ...item, statusGrupo: 'Inativo' } : item))
+  }
+
+  function mergeContacts(current: GroupContact[], incoming: GroupContact[]) {
+    const next = [...current]
+    for (const contact of incoming) {
+      const phone = normalizePhone(contact.whatsapp)
+      const index = next.findIndex((item) => normalizePhone(item.whatsapp) === phone && phone)
+      if (index >= 0) next[index] = { ...next[index], ...contact, id: next[index].id }
+      else next.push(contact)
+    }
+    return next
+  }
+
+  function findKnownInternalContact(whatsapp: string) {
+    const phone = normalizePhone(whatsapp)
+    if (!phone) return null
+
+    const user = users.find((item) => normalizePhone(item.whatsapp) === phone)
+    if (user) {
+      return { nome: user.nome, email: user.email, funcao: user.setor, tipo: 'Interno' as ContactType }
+    }
+
+    for (const group of clientGroups) {
+      const contact = group.contatos.find((item) => item.tipo === 'Interno' && normalizePhone(item.whatsapp) === phone)
+      if (contact) return { nome: contact.nome, email: contact.email, funcao: contact.funcao, tipo: 'Interno' as ContactType }
+    }
+    return null
+  }
+
+  function autofillInternalContact(contact: GroupContact): GroupContact {
+    const known = findKnownInternalContact(contact.whatsapp)
+    if (!known || (contact.tipo !== 'Interno' && contact.tipo !== 'Não definido')) return contact
+    return {
+      ...contact,
+      tipo: 'Interno',
+      nome: contact.nome || known.nome,
+      email: contact.email || known.email,
+      funcao: contact.funcao || known.funcao,
+    }
   }
 
   const filteredUsers = users.filter((user) => {
     const term = userSearch.trim().toLowerCase()
     if (!term) return true
-    return [user.nome, user.email, user.setor, user.perfil, user.status].some((value) => value.toLowerCase().includes(term))
+    return [user.nome, user.email, user.whatsapp, user.setor, user.perfil, user.status].some((value) => value.toLowerCase().includes(term))
+  })
+
+  const filteredClientGroups = clientGroups.filter((record) => {
+    const term = clientSearch.trim().toLowerCase()
+    if (!term) return true
+    return [record.nomeGrupo, record.idGrupo, record.nomeCliente, record.documento, record.responsavelCliente, record.unidade, record.demandaMonitorada, record.statusGrupo].some((value) => value.toLowerCase().includes(term))
   })
 
   const activeUsers = users.filter((user) => user.status === 'Ativo').length
-  const activeClients = clients.filter((client) => client.status === 'Ativo').length
-  const activeGroups = groupsClients.filter((group) => group.status === 'Ativo').length
+  const activeGroups = clientGroups.filter((group) => group.statusGrupo === 'Ativo').length
+  const pendingGroups = clientGroups.filter((group) => !group.nomeCliente.trim() || !group.demandaMonitorada.trim()).length
 
   const stats = useMemo(
     () => [
-      { label: 'Clientes cadastrados', value: String(clients.length), hint: `${activeClients} ativo(s)`, tone: 'blue' },
-      { label: 'Grupos vinculados', value: String(groupsClients.length), hint: `${activeGroups} ativo(s)`, tone: 'orange' },
+      { label: 'Grupos identificados', value: String(clientGroups.length), hint: `${activeGroups} ativo(s)`, tone: 'blue' },
+      { label: 'Cadastros pendentes', value: String(pendingGroups), hint: 'Aguardando complemento', tone: 'orange' },
       { label: 'Usuários ativos', value: String(activeUsers), hint: `${users.length} cadastrado(s)`, tone: 'green' },
       { label: 'Modo operação', value: 'Manual', hint: 'Aprovação humana', tone: 'red' },
     ],
-    [activeClients, activeGroups, activeUsers, clients.length, groupsClients.length, users.length],
+    [activeGroups, activeUsers, clientGroups.length, pendingGroups, users.length],
   )
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setLoginError('')
-
     const emailOk = loginEmail.trim().toLowerCase() === MASTER_EMAIL
     const passwordOk = (await sha256(loginPassword)) === MASTER_PASSWORD_HASH
-
     if (!emailOk || !passwordOk) {
       setLoginError('E-mail ou senha inválidos.')
       return
     }
-
     setAuthenticated(true)
     setLoginPassword('')
   }
@@ -226,13 +343,11 @@ function App() {
       return
     }
     if (userForm.id === masterUser.id) return
-
     const exists = users.some((user) => user.id !== userForm.id && user.email.toLowerCase() === userForm.email.toLowerCase())
     if (exists) {
       notify('Já existe usuário com este e-mail.')
       return
     }
-
     const record = { ...userForm, id: userForm.id || generateId('USR') }
     persistUsers(userForm.id ? users.map((user) => (user.id === userForm.id ? record : user)) : [...users, record])
     setUserForm(emptyUser)
@@ -256,210 +371,142 @@ function App() {
     persistUsers(users.map((item) => (item.id === user.id ? { ...item, status: item.status === 'Ativo' ? 'Inativo' : 'Ativo' } : item)))
   }
 
-  function saveClient(event: React.FormEvent<HTMLFormElement>) {
+  function saveClientGroup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!clientForm.nomeCliente.trim() || !clientForm.responsavel.trim() || !clientForm.emailResponsavel.trim()) {
-      notify('Preencha cliente, responsável e e-mail.')
+    if (!clientGroupForm.nomeGrupo.trim() || !clientGroupForm.idGrupo.trim()) {
+      notify('Preencha nome do grupo e ID do grupo.')
       return
     }
-    const record = { ...clientForm, id: clientForm.id || generateId('CLI') }
-    persistClients(clientForm.id ? clients.map((client) => (client.id === clientForm.id ? record : client)) : [...clients, record])
-    setClientForm(emptyClient)
-    notify('Cliente salvo.')
-  }
-
-  function deleteClient(id: string) {
-    persistClients(clients.filter((client) => client.id !== id))
-    persistGroups(groupsClients.filter((group) => group.clienteId !== id))
-    if (clientForm.id === id) setClientForm(emptyClient)
-    notify('Cliente removido.')
-  }
-
-  function saveGroupClient(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!groupForm.clienteId || !groupForm.nomeGrupo.trim() || !groupForm.demandaMonitorada.trim()) {
-      notify('Preencha cliente, grupo e demanda monitorada.')
+    const duplicate = clientGroups.some((item) => item.id !== clientGroupForm.id && item.idGrupo === clientGroupForm.idGrupo)
+    if (duplicate) {
+      notify('Já existe cadastro com este ID de grupo.')
       return
     }
-    const record = { ...groupForm, id: groupForm.id || generateId('GRP') }
-    persistGroups(groupForm.id ? groupsClients.map((group) => (group.id === groupForm.id ? record : group)) : [...groupsClients, record])
-    setGroupForm(emptyGroupClient)
-    notify('Grupo/cliente salvo.')
+    const record = { ...clientGroupForm, id: clientGroupForm.id || generateId('CG') }
+    persistClientGroups(clientGroupForm.id ? clientGroups.map((item) => (item.id === clientGroupForm.id ? record : item)) : [record, ...clientGroups])
+    setClientGroupForm(emptyClientGroup)
+    setContactForm(emptyContact)
+    notify('Cadastro salvo.')
   }
 
-  function deleteGroupClient(id: string) {
-    persistGroups(groupsClients.filter((group) => group.id !== id))
-    if (groupForm.id === id) setGroupForm(emptyGroupClient)
-    notify('Vínculo removido.')
+  function deleteClientGroup(id: string) {
+    persistClientGroups(clientGroups.filter((item) => item.id !== id))
+    if (clientGroupForm.id === id) setClientGroupForm(emptyClientGroup)
+    notify('Cadastro removido.')
+  }
+
+  function addContact() {
+    if (!contactForm.whatsapp.trim()) {
+      notify('Informe o WhatsApp do contato.')
+      return
+    }
+    const record = autofillInternalContact({ ...contactForm, id: contactForm.id || generateId('CTT') })
+    const contacts = contactForm.id
+      ? clientGroupForm.contatos.map((item) => item.id === contactForm.id ? record : item)
+      : mergeContacts(clientGroupForm.contatos, [record])
+    setClientGroupForm({ ...clientGroupForm, contatos: contacts })
+    setContactForm(emptyContact)
+  }
+
+  function editContact(contact: GroupContact) {
+    setContactForm(contact)
+  }
+
+  function deleteContact(id: string) {
+    setClientGroupForm({ ...clientGroupForm, contatos: clientGroupForm.contatos.filter((contact) => contact.id !== id) })
+    if (contactForm.id === id) setContactForm(emptyContact)
   }
 
   function renderUsers() {
     return (
       <main className="content-shell">
         <SectionHeader eyebrow="Cadastros" title="Usuários" description="Controle de acessos internos do Agent CrossDo." />
-
         <div className="toolbar">
-          <div className="search-box">
-            <Search size={18} />
-            <input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Buscar usuário" aria-label="Buscar usuário" />
-          </div>
+          <div className="search-box"><Search size={18} /><input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Buscar usuário" aria-label="Buscar usuário" /></div>
           <button className="primary-button" type="button" onClick={() => setUserForm(emptyUser)}><Plus size={16} /> Novo usuário</button>
         </div>
-
         <div className="card table-card">
           <table>
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>E-mail</th>
-                <th>Setor</th>
-                <th>Perfil</th>
-                <th>Status</th>
-                <th>Ações</th>
+            <thead><tr><th>Nome</th><th>E-mail</th><th>WhatsApp</th><th>Setor</th><th>Perfil</th><th>Status</th><th>Ações</th></tr></thead>
+            <tbody>{filteredUsers.map((user) => (
+              <tr key={user.id}>
+                <td>{user.nome}</td><td>{user.email}</td><td>{user.whatsapp || '—'}</td><td>{user.setor}</td>
+                <td><span className="pill dark">{user.protegido ? 'Administrador' : user.perfil}</span></td>
+                <td><button className={`pill status ${user.status === 'Ativo' ? 'success' : 'neutral'}`} type="button" onClick={() => toggleUserStatus(user)}>{user.status}</button></td>
+                <td><div className="row-actions"><button type="button" onClick={() => editUser(user)} disabled={user.protegido}><Edit3 size={15} /></button><button type="button" onClick={() => deleteUser(user.id)} disabled={user.protegido}><Trash2 size={15} /></button></div></td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredUsers.map((user) => (
-                <tr key={user.id}>
-                  <td>{user.nome}</td>
-                  <td>{user.email}</td>
-                  <td>{user.setor}</td>
-                  <td><span className="pill dark">{user.protegido ? 'Administrador' : user.perfil}</span></td>
-                  <td><button className={`pill status ${user.status === 'Ativo' ? 'success' : 'neutral'}`} type="button" onClick={() => toggleUserStatus(user)}>{user.status}</button></td>
-                  <td>
-                    <div className="row-actions">
-                      <button type="button" onClick={() => editUser(user)} disabled={user.protegido}><Edit3 size={15} /></button>
-                      <button type="button" onClick={() => deleteUser(user.id)} disabled={user.protegido}><Trash2 size={15} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            ))}</tbody>
           </table>
         </div>
-
         <form className="card record-form" onSubmit={saveUser}>
           <h3>{userForm.id ? 'Editar usuário' : 'Novo usuário'}</h3>
           <label><span>Nome</span><input value={userForm.nome} onChange={(event) => setUserForm({ ...userForm, nome: event.target.value })} /></label>
           <label><span>E-mail</span><input type="email" value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} /></label>
-          <label><span>Setor</span><input value={userForm.setor} onChange={(event) => setUserForm({ ...userForm, setor: event.target.value })} /></label>
+          <label><span>WhatsApp</span><input value={userForm.whatsapp} onChange={(event) => setUserForm({ ...userForm, whatsapp: event.target.value })} /></label>
+          <label><span>Setor/Função</span><input value={userForm.setor} onChange={(event) => setUserForm({ ...userForm, setor: event.target.value })} /></label>
           <label><span>Perfil</span><select value={userForm.perfil} onChange={(event) => setUserForm({ ...userForm, perfil: event.target.value as UserRecord['perfil'] })}><option>Administrador</option><option>Atendimento</option></select></label>
           <label><span>Status</span><select value={userForm.status} onChange={(event) => setUserForm({ ...userForm, status: event.target.value as Status })}><option>Ativo</option><option>Inativo</option></select></label>
-          <div className="form-actions span-2">
-            <button className="secondary-button" type="button" onClick={() => setUserForm(emptyUser)}>Limpar</button>
-            <button className="primary-button" type="submit"><Save size={16} /> Salvar</button>
-          </div>
+          <div className="form-actions span-2"><button className="secondary-button" type="button" onClick={() => setUserForm(emptyUser)}>Limpar</button><button className="primary-button" type="submit"><Save size={16} /> Salvar</button></div>
         </form>
       </main>
     )
   }
 
-  function renderClients() {
+  function renderClientGroups() {
     return (
       <main className="content-shell">
-        <SectionHeader eyebrow="Cadastros" title="Clientes" description="Cadastro dos clientes acompanhados pelo Agent CrossDo." />
-
+        <SectionHeader eyebrow="Cadastros" title="Clientes/Grupos" description="Cadastro único do cliente, grupo de WhatsApp e contatos identificados no grupo." />
+        <div className="toolbar">
+          <div className="search-box"><Search size={18} /><input value={clientSearch} onChange={(event) => setClientSearch(event.target.value)} placeholder="Buscar por cliente, grupo ou ID" /></div>
+          <button className="primary-button" type="button" onClick={() => upsertGroupDetectedByN8n({ nomeGrupo: 'Grupo identificado pelo n8n', idGrupo: `grupo-${Date.now()}` })}><Plus size={16} /> Grupo detectado</button>
+        </div>
         <div className="card table-card spaced-card">
           <table>
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Documento</th>
-                <th>Responsável</th>
-                <th>Unidade</th>
-                <th>Demanda</th>
-                <th>Status</th>
-                <th>Ações</th>
+            <thead><tr><th>Grupo</th><th>ID do grupo</th><th>Cliente</th><th>Unidade</th><th>Contatos</th><th>Status</th><th>Ações</th></tr></thead>
+            <tbody>{filteredClientGroups.length === 0 ? <tr><td colSpan={7}>Nenhum cadastro encontrado.</td></tr> : filteredClientGroups.map((record) => (
+              <tr key={record.id}>
+                <td>{record.nomeGrupo}</td><td>{record.idGrupo}</td><td>{record.nomeCliente || 'Pendente'}</td><td>{record.unidade}</td><td>{record.contatos.length}</td>
+                <td><button className={`pill status ${record.statusGrupo === 'Ativo' ? 'success' : 'neutral'}`} type="button" onClick={() => markGroupRemovedByN8n(record.idGrupo)}>{record.statusGrupo}</button></td>
+                <td><div className="row-actions"><button type="button" onClick={() => setClientGroupForm(record)}><Edit3 size={15} /></button><button type="button" onClick={() => deleteClientGroup(record.id)}><Trash2 size={15} /></button></div></td>
               </tr>
-            </thead>
-            <tbody>
-              {clients.length === 0 ? <tr><td colSpan={7}>Nenhum cliente cadastrado.</td></tr> : clients.map((client) => (
-                <tr key={client.id}>
-                  <td>{client.nomeCliente}</td>
-                  <td>{client.documento || '—'}</td>
-                  <td>{client.responsavel}</td>
-                  <td>{client.unidade}</td>
-                  <td>{client.tipoDemanda}</td>
-                  <td><span className={`pill ${client.status === 'Ativo' ? 'success' : 'neutral'}`}>{client.status}</span></td>
-                  <td><div className="row-actions"><button type="button" onClick={() => setClientForm(client)}><Edit3 size={15} /></button><button type="button" onClick={() => deleteClient(client.id)}><Trash2 size={15} /></button></div></td>
-                </tr>
+            ))}</tbody>
+          </table>
+        </div>
+        <form className="card record-form" onSubmit={saveClientGroup}>
+          <h3>{clientGroupForm.id ? 'Editar cliente/grupo' : 'Novo cliente/grupo'}</h3>
+          <label><span>Nome do grupo</span><input value={clientGroupForm.nomeGrupo} onChange={(event) => setClientGroupForm({ ...clientGroupForm, nomeGrupo: event.target.value })} /></label>
+          <label><span>ID do grupo</span><input value={clientGroupForm.idGrupo} onChange={(event) => setClientGroupForm({ ...clientGroupForm, idGrupo: event.target.value })} /></label>
+          <label><span>Status do grupo</span><select value={clientGroupForm.statusGrupo} onChange={(event) => setClientGroupForm({ ...clientGroupForm, statusGrupo: event.target.value as Status })}><option>Ativo</option><option>Inativo</option></select></label>
+          <label><span>Nome do cliente</span><input value={clientGroupForm.nomeCliente} onChange={(event) => setClientGroupForm({ ...clientGroupForm, nomeCliente: event.target.value })} /></label>
+          <label><span>CNPJ / CPF</span><input value={clientGroupForm.documento} onChange={(event) => setClientGroupForm({ ...clientGroupForm, documento: event.target.value })} /></label>
+          <label><span>Unidade</span><select value={clientGroupForm.unidade} onChange={(event) => setClientGroupForm({ ...clientGroupForm, unidade: event.target.value })}><option>Nova Lima/MG</option><option>Barueri/SP</option><option>Todas</option></select></label>
+          <label><span>Responsável do cliente</span><input value={clientGroupForm.responsavelCliente} onChange={(event) => setClientGroupForm({ ...clientGroupForm, responsavelCliente: event.target.value })} /></label>
+          <label><span>E-mail do responsável</span><input type="email" value={clientGroupForm.emailResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, emailResponsavel: event.target.value })} /></label>
+          <label><span>WhatsApp do responsável</span><input value={clientGroupForm.telefoneResponsavel} onChange={(event) => setClientGroupForm({ ...clientGroupForm, telefoneResponsavel: event.target.value })} /></label>
+          <label><span>Demanda monitorada</span><input value={clientGroupForm.demandaMonitorada} onChange={(event) => setClientGroupForm({ ...clientGroupForm, demandaMonitorada: event.target.value })} /></label>
+          <label><span>SLA esperado</span><input value={clientGroupForm.sla} onChange={(event) => setClientGroupForm({ ...clientGroupForm, sla: event.target.value })} /></label>
+          <label className="span-2"><span>Regra de atendimento</span><textarea value={clientGroupForm.regraAtendimento} onChange={(event) => setClientGroupForm({ ...clientGroupForm, regraAtendimento: event.target.value })} /></label>
+          <label className="span-2"><span>Observações</span><textarea value={clientGroupForm.observacoes} onChange={(event) => setClientGroupForm({ ...clientGroupForm, observacoes: event.target.value })} /></label>
+          <div className="contact-panel span-2">
+            <h4>Contatos do grupo</h4>
+            <div className="contact-list">
+              {clientGroupForm.contatos.length === 0 ? <p className="muted">Nenhum contato cadastrado.</p> : clientGroupForm.contatos.map((contact) => (
+                <div className="contact-row" key={contact.id}>
+                  <span>{contact.nome || 'Sem nome'}</span><span>{contact.funcao || '—'}</span><span>{contact.whatsapp}</span><span>{contact.email || '—'}</span><span className="pill dark">{contact.tipo}</span>
+                  <div className="row-actions"><button type="button" onClick={() => editContact(contact)}><Edit3 size={14} /></button><button type="button" onClick={() => deleteContact(contact.id)}><Trash2 size={14} /></button></div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
-
-        <form className="card record-form" onSubmit={saveClient}>
-          <h3>{clientForm.id ? 'Editar cliente' : 'Novo cliente'}</h3>
-          <label><span>Nome do cliente</span><input value={clientForm.nomeCliente} onChange={(event) => setClientForm({ ...clientForm, nomeCliente: event.target.value })} /></label>
-          <label><span>CNPJ / CPF</span><input value={clientForm.documento} onChange={(event) => setClientForm({ ...clientForm, documento: event.target.value })} /></label>
-          <label><span>Responsável</span><input value={clientForm.responsavel} onChange={(event) => setClientForm({ ...clientForm, responsavel: event.target.value })} /></label>
-          <label><span>E-mail do responsável</span><input type="email" value={clientForm.emailResponsavel} onChange={(event) => setClientForm({ ...clientForm, emailResponsavel: event.target.value })} /></label>
-          <label><span>Telefone / WhatsApp</span><input value={clientForm.telefone} onChange={(event) => setClientForm({ ...clientForm, telefone: event.target.value })} /></label>
-          <label><span>Unidade atendida</span><select value={clientForm.unidade} onChange={(event) => setClientForm({ ...clientForm, unidade: event.target.value })}><option>Nova Lima/MG</option><option>Barueri/SP</option><option>Todas</option></select></label>
-          <label><span>Tipo de demanda inicial</span><input value={clientForm.tipoDemanda} onChange={(event) => setClientForm({ ...clientForm, tipoDemanda: event.target.value })} /></label>
-          <label><span>SLA esperado</span><input value={clientForm.sla} onChange={(event) => setClientForm({ ...clientForm, sla: event.target.value })} /></label>
-          <label><span>Status</span><select value={clientForm.status} onChange={(event) => setClientForm({ ...clientForm, status: event.target.value as Status })}><option>Ativo</option><option>Inativo</option></select></label>
-          <label className="span-2"><span>Observações e regras específicas</span><textarea value={clientForm.observacoes} onChange={(event) => setClientForm({ ...clientForm, observacoes: event.target.value })} /></label>
-          <div className="form-actions span-2">
-            <button className="secondary-button" type="button" onClick={() => setClientForm(emptyClient)}>Limpar</button>
-            <button className="primary-button" type="submit"><Save size={16} /> Salvar</button>
+            </div>
           </div>
-        </form>
-      </main>
-    )
-  }
-
-  function renderGroupsClients() {
-    return (
-      <main className="content-shell">
-        <SectionHeader eyebrow="Cadastros" title="Grupos/Clientes" description="Vincule grupos de atendimento aos clientes cadastrados." />
-
-        <div className="card table-card spaced-card">
-          <table>
-            <thead>
-              <tr>
-                <th>Grupo</th>
-                <th>Cliente</th>
-                <th>Identificador</th>
-                <th>Unidade</th>
-                <th>Demanda</th>
-                <th>Status</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groupsClients.length === 0 ? <tr><td colSpan={7}>Nenhum grupo vinculado.</td></tr> : groupsClients.map((group) => {
-                const client = clients.find((item) => item.id === group.clienteId)
-                return (
-                  <tr key={group.id}>
-                    <td>{group.nomeGrupo}</td>
-                    <td>{client?.nomeCliente ?? '—'}</td>
-                    <td>{group.identificadorGrupo || '—'}</td>
-                    <td>{group.unidade}</td>
-                    <td>{group.demandaMonitorada}</td>
-                    <td><span className={`pill ${group.status === 'Ativo' ? 'success' : 'neutral'}`}>{group.status}</span></td>
-                    <td><div className="row-actions"><button type="button" onClick={() => setGroupForm(group)}><Edit3 size={15} /></button><button type="button" onClick={() => deleteGroupClient(group.id)}><Trash2 size={15} /></button></div></td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <form className="card record-form" onSubmit={saveGroupClient}>
-          <h3>{groupForm.id ? 'Editar grupo/cliente' : 'Novo grupo/cliente'}</h3>
-          <label><span>Cliente</span><select value={groupForm.clienteId} onChange={(event) => setGroupForm({ ...groupForm, clienteId: event.target.value })}><option value="">Selecione</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.nomeCliente}</option>)}</select></label>
-          <label><span>Nome do grupo</span><input value={groupForm.nomeGrupo} onChange={(event) => setGroupForm({ ...groupForm, nomeGrupo: event.target.value })} /></label>
-          <label><span>Identificador do grupo</span><input value={groupForm.identificadorGrupo} onChange={(event) => setGroupForm({ ...groupForm, identificadorGrupo: event.target.value })} /></label>
-          <label><span>Unidade</span><select value={groupForm.unidade} onChange={(event) => setGroupForm({ ...groupForm, unidade: event.target.value })}><option>Nova Lima/MG</option><option>Barueri/SP</option><option>Todas</option></select></label>
-          <label><span>Demanda monitorada</span><input value={groupForm.demandaMonitorada} onChange={(event) => setGroupForm({ ...groupForm, demandaMonitorada: event.target.value })} /></label>
-          <label><span>Responsável interno</span><input value={groupForm.responsavelInterno} onChange={(event) => setGroupForm({ ...groupForm, responsavelInterno: event.target.value })} /></label>
-          <label><span>Status</span><select value={groupForm.status} onChange={(event) => setGroupForm({ ...groupForm, status: event.target.value as Status })}><option>Ativo</option><option>Inativo</option></select></label>
-          <label className="span-2"><span>Observações</span><textarea value={groupForm.observacoes} onChange={(event) => setGroupForm({ ...groupForm, observacoes: event.target.value })} /></label>
-          <div className="form-actions span-2">
-            <button className="secondary-button" type="button" onClick={() => setGroupForm(emptyGroupClient)}>Limpar</button>
-            <button className="primary-button" type="submit"><Save size={16} /> Salvar</button>
+          <div className="contact-form span-2">
+            <label><span>WhatsApp</span><input value={contactForm.whatsapp} onChange={(event) => setContactForm({ ...contactForm, whatsapp: event.target.value })} onBlur={() => setContactForm(autofillInternalContact(contactForm))} /></label>
+            <label><span>Tipo</span><select value={contactForm.tipo} onChange={(event) => setContactForm(autofillInternalContact({ ...contactForm, tipo: event.target.value as ContactType }))}><option>Não definido</option><option>Interno</option><option>Externo</option></select></label>
+            <label><span>Nome</span><input value={contactForm.nome} onChange={(event) => setContactForm({ ...contactForm, nome: event.target.value })} /></label>
+            <label><span>Função</span><input value={contactForm.funcao} onChange={(event) => setContactForm({ ...contactForm, funcao: event.target.value })} /></label>
+            <label><span>E-mail</span><input type="email" value={contactForm.email} onChange={(event) => setContactForm({ ...contactForm, email: event.target.value })} /></label>
+            <button className="secondary-button" type="button" onClick={addContact}><Plus size={16} /> Adicionar contato</button>
           </div>
+          <div className="form-actions span-2"><button className="secondary-button" type="button" onClick={() => { setClientGroupForm(emptyClientGroup); setContactForm(emptyContact) }}>Limpar</button><button className="primary-button" type="submit"><Save size={16} /> Salvar</button></div>
         </form>
       </main>
     )
@@ -469,35 +516,10 @@ function App() {
     return (
       <main className="content-shell">
         <SectionHeader eyebrow="Painel operacional" title="Dashboard Agent CrossDo" description="Visão inicial dos cadastros e vínculos operacionais do Cross Agent." />
-
-        <div className="stats-grid">
-          {stats.map((stat) => (
-            <article className={`stat-card ${stat.tone}`} key={stat.label}>
-              <span>{stat.label}</span>
-              <strong>{stat.value}</strong>
-              <small>{stat.hint}</small>
-            </article>
-          ))}
-        </div>
-
+        <div className="stats-grid">{stats.map((stat) => <article className={`stat-card ${stat.tone}`} key={stat.label}><span>{stat.label}</span><strong>{stat.value}</strong><small>{stat.hint}</small></article>)}</div>
         <div className="dashboard-grid">
-          <article className="card">
-            <div className="card-title"><LayoutDashboard size={20} /><h3>Módulos ativos</h3></div>
-            <ul className="timeline">
-              <li><strong>Usuários:</strong> controle de acesso interno.</li>
-              <li><strong>Clientes:</strong> cadastro base do atendimento.</li>
-              <li><strong>Grupos/Clientes:</strong> vínculo entre grupos monitorados e clientes.</li>
-            </ul>
-          </article>
-
-          <article className="card">
-            <div className="card-title"><Building2 size={20} /><h3>Ações rápidas</h3></div>
-            <div className="quick-actions stacked">
-              <button type="button" onClick={() => setScreen('clientes')}>Cadastrar cliente</button>
-              <button type="button" onClick={() => setScreen('gruposClientes')}>Vincular grupo/cliente</button>
-              <button type="button" onClick={() => setScreen('usuarios')}>Gerenciar usuários</button>
-            </div>
-          </article>
+          <article className="card"><div className="card-title"><LayoutDashboard size={20} /><h3>Módulos ativos</h3></div><ul className="timeline"><li><strong>Usuários:</strong> controle de acesso interno.</li><li><strong>Clientes/Grupos:</strong> cadastro único por grupo identificado.</li><li><strong>Contatos:</strong> classificação de participantes internos e externos.</li></ul></article>
+          <article className="card"><div className="card-title"><Building2 size={20} /><h3>Ações rápidas</h3></div><div className="quick-actions stacked"><button type="button" onClick={() => setScreen('clientesGrupos')}>Abrir clientes/grupos</button><button type="button" onClick={() => upsertGroupDetectedByN8n({ nomeGrupo: 'Grupo identificado pelo n8n', idGrupo: `grupo-${Date.now()}` })}>Registrar grupo detectado</button><button type="button" onClick={() => setScreen('usuarios')}>Gerenciar usuários</button></div></article>
         </div>
       </main>
     )
@@ -505,26 +527,16 @@ function App() {
 
   function renderContent() {
     if (screen === 'usuarios') return renderUsers()
-    if (screen === 'clientes') return renderClients()
-    if (screen === 'gruposClientes') return renderGroupsClients()
+    if (screen === 'clientesGrupos') return renderClientGroups()
     return renderDashboard()
   }
 
   if (!authenticated) {
     return (
       <div className="login-page">
-        <section className="login-brand">
-          <img className="login-logo" src="/agent-crossdo-app/brand/logo-icon.png" alt="CrossDo" />
-          <p>Portal de atendimento e auditoria</p>
-          <h1>Agent CrossDo</h1>
-        </section>
-
+        <section className="login-brand"><img className="login-logo" src="/agent-crossdo-app/brand/logo-icon.png" alt="CrossDo" /><p>Portal de atendimento e auditoria</p><h1>Agent CrossDo</h1></section>
         <form className="login-card" onSubmit={handleLogin}>
-          <div>
-            <p className="eyebrow">Acesso restrito</p>
-            <h2>Entrar no painel</h2>
-            <span className="login-subtitle">Acesse com seu e-mail e senha</span>
-          </div>
+          <div><p className="eyebrow">Acesso restrito</p><span className="login-subtitle">Acesse com seu e-mail e senha</span></div>
           <label><span>E-mail</span><input value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} type="email" autoComplete="email" /></label>
           <label><span>Senha</span><input value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} type="password" autoComplete="current-password" autoFocus /></label>
           {loginError && <p className="login-error">{loginError}</p>}
@@ -537,49 +549,16 @@ function App() {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
-        <div className="sidebar-brand">
-          <img className="sidebar-logo" src="/agent-crossdo-app/brand/logo-icon.png" alt="CrossDo" />
-          <div><strong>Agent CrossDo</strong><span>Cross Agent</span></div>
-        </div>
-
-        <nav className="side-nav">
-          <button className={screen === 'dashboard' ? 'active' : ''} onClick={() => setScreen('dashboard')}><Home size={18} /> <span>Dashboard</span></button>
-          <button className="nav-parent" onClick={() => setCadastrosOpen(!cadastrosOpen)}><Users size={18} /> <span>Cadastros</span> <ChevronDown size={16} className={cadastrosOpen ? 'rotate' : ''} /></button>
-          {cadastrosOpen && (
-            <div className="submenu">
-              <button className={screen === 'usuarios' ? 'active' : ''} onClick={() => setScreen('usuarios')}><UserCog size={17} /> <span>Usuários</span></button>
-              <button className={screen === 'clientes' ? 'active' : ''} onClick={() => setScreen('clientes')}><Building2 size={17} /> <span>Clientes</span></button>
-              <button className={screen === 'gruposClientes' ? 'active' : ''} onClick={() => setScreen('gruposClientes')}><Users size={17} /> <span>Grupos/Clientes</span></button>
-            </div>
-          )}
-        </nav>
+        <div className="sidebar-brand"><img className="sidebar-logo" src="/agent-crossdo-app/brand/logo-icon.png" alt="CrossDo" /><div><strong>Agent CrossDo</strong><span>Cross Agent</span></div></div>
+        <nav className="side-nav"><button className={screen === 'dashboard' ? 'active' : ''} onClick={() => setScreen('dashboard')}><Home size={18} /> <span>Dashboard</span></button><button className="nav-parent" onClick={() => setCadastrosOpen(!cadastrosOpen)}><Users size={18} /> <span>Cadastros</span> <ChevronDown size={16} className={cadastrosOpen ? 'rotate' : ''} /></button>{cadastrosOpen && <div className="submenu"><button className={screen === 'usuarios' ? 'active' : ''} onClick={() => setScreen('usuarios')}><UserCog size={17} /> <span>Usuários</span></button><button className={screen === 'clientesGrupos' ? 'active' : ''} onClick={() => setScreen('clientesGrupos')}><Building2 size={17} /> <span>Clientes/Grupos</span></button></div>}</nav>
       </aside>
-
-      <section className="main-area">
-        <header className="topbar">
-          <div className="topbar-left">
-            <button className="icon-button" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Alternar menu"><Menu size={20} /></button>
-            <div><strong>Agent CrossDo</strong><span>Nome: Henrique Andrade • Setor: Diretoria / Cross Agent</span></div>
-          </div>
-
-          <div className="topbar-actions">
-            <button title="Ajuda" type="button" onClick={() => window.open('https://github.com/henriqueandrade142-cell/agent-crossdo-app', '_blank', 'noopener,noreferrer')}><HelpCircle size={17} /> <span>Ajuda</span></button>
-            <button title="Atualizar" type="button" onClick={() => window.location.reload()}><RefreshCw size={17} /> <span>Atualizar</span></button>
-            <button title="Trocar senha" type="button" onClick={() => notify('Solicitação registrada.')}><KeyRound size={17} /> <span>Trocar senha</span></button>
-            <button title="Sair" type="button" onClick={() => setAuthenticated(false)}><LogOut size={17} /> <span>Sair</span></button>
-          </div>
-        </header>
-        {flash && <div className="flash-message">{flash}</div>}
-        {renderContent()}
-      </section>
+      <section className="main-area"><header className="topbar"><div className="topbar-left"><button className="icon-button" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Alternar menu"><Menu size={20} /></button><div><strong>Agent CrossDo</strong><span>Nome: Henrique Andrade • Setor: Diretoria / Cross Agent</span></div></div><div className="topbar-actions"><button title="Ajuda" type="button" onClick={() => window.open('https://github.com/henriqueandrade142-cell/agent-crossdo-app', '_blank', 'noopener,noreferrer')}><HelpCircle size={17} /> <span>Ajuda</span></button><button title="Atualizar" type="button" onClick={() => window.location.reload()}><RefreshCw size={17} /> <span>Atualizar</span></button><button title="Trocar senha" type="button" onClick={() => notify('Solicitação registrada.')}><KeyRound size={17} /> <span>Trocar senha</span></button><button title="Sair" type="button" onClick={() => setAuthenticated(false)}><LogOut size={17} /> <span>Sair</span></button></div></header>{flash && <div className="flash-message">{flash}</div>}{renderContent()}</section>
     </div>
   )
 }
 
 function SectionHeader({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
-  return (
-    <div className="section-header"><p className="eyebrow">{eyebrow}</p><h2>{title}</h2><p>{description}</p></div>
-  )
+  return <div className="section-header"><p className="eyebrow">{eyebrow}</p><h2>{title}</h2><p>{description}</p></div>
 }
 
 export default App
