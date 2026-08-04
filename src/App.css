@@ -207,45 +207,45 @@ textarea:focus {
 }
 
 .sidebar {
-  width: 220px;
-  flex: 0 0 220px;
+  width: 244px;
+  flex: 0 0 244px;
   position: sticky;
   top: 0;
   align-self: flex-start;
   height: 100vh;
   background: var(--cd-sidebar);
   color: #fff;
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
-  transition: width 0.22s;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  transition: width 0.2s ease, flex-basis 0.2s ease;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
 .sidebar.closed {
-  width: 58px;
-  flex-basis: 58px;
+  width: 68px;
+  flex-basis: 68px;
 }
 
 .sidebar.closed .sidebar-brand div:last-child,
 .sidebar.closed .side-nav span,
-.sidebar.closed .nav-parent svg:last-child {
+.sidebar.closed .nav-section-label {
   display: none;
 }
 
 .sidebar-brand {
-  height: 52px;
+  height: 68px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .sidebar-logo {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   object-fit: cover;
   background: #fff;
   padding: 2px;
@@ -262,33 +262,36 @@ textarea:focus {
 .sidebar-brand span,
 .topbar-left span {
   display: block;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.68);
   font-size: 12px;
   margin-top: 3px;
 }
 
 .sidebar-brand strong {
-  font-size: 14px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .sidebar-brand span {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .side-nav {
-  padding: 8px 6px;
-  display: grid;
-  gap: 3px;
+  padding: 18px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
 
 .side-nav::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 .side-nav::-webkit-scrollbar-track {
@@ -296,65 +299,81 @@ textarea:focus {
 }
 
 .side-nav::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.22);
   border-radius: 999px;
 }
 
 .side-nav::before {
-  content: "Menu";
-  padding: 0 8px;
-  color: rgba(255, 255, 255, 0.58);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  content: none;
+}
+
+.nav-section-label {
+  margin: 16px 8px 6px;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 13px;
   font-weight: 800;
+  line-height: 1;
 }
 
 .side-nav button {
   width: 100%;
+  min-height: 42px;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 11px;
   background: transparent;
   color: rgba(255, 255, 255, 0.86);
   border: 0;
-  border-radius: var(--cd-radius);
-  padding: 6px 8px;
+  border-radius: 10px;
+  padding: 0 10px;
   text-align: left;
   font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.side-nav button:hover,
-.side-nav button.active {
-  background: var(--cd-sidebar-accent);
+.side-nav button svg {
+  width: 17px !important;
+  height: 17px !important;
+  flex: 0 0 17px;
+  opacity: 0.95;
+}
+
+.side-nav button:hover {
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
 
 .side-nav button.active {
+  background: rgba(255, 255, 255, 0.13);
+  color: #fff;
   box-shadow: inset 3px 0 0 var(--cd-primary);
 }
 
-.nav-parent {
-  justify-content: flex-start;
-  margin-bottom: -2px;
+.sidebar.closed .side-nav {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
-.nav-parent svg:last-child {
-  margin-left: auto;
-  transition: transform 0.18s;
+.sidebar.closed .side-nav button {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
 }
 
-.nav-parent svg.rotate {
-  transform: rotate(180deg);
-}
+@media (max-width: 980px) {
+  .sidebar {
+    z-index: 5;
+    position: fixed;
+    inset: 0 auto 0 0;
+    height: 100vh;
+  }
 
-.submenu {
-  padding-left: 6px;
-  display: grid;
-  gap: 3px;
+  .sidebar.closed {
+    width: 0;
+    flex-basis: 0;
+  }
 }
 
 .main-area {
@@ -1061,23 +1080,6 @@ input[readonly] {
   .audit-filters {
     grid-template-columns: 1fr;
   }
-}
-
-.side-nav button svg {
-  width: 15px !important;
-  height: 15px !important;
-  flex: 0 0 15px;
-}
-
-.nav-parent svg:last-child {
-  width: 13px !important;
-  height: 13px !important;
-}
-
-.sidebar.closed .side-nav button {
-  justify-content: center;
-  padding-left: 0;
-  padding-right: 0;
 }
 
 .wms-header-badges {
