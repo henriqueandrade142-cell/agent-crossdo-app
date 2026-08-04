@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Motor de e-mail — Agent CrossDo</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #1f2937; max-width: 1040px; margin: 32px auto; padding: 0 20px; line-height: 1.55; background: #fbfbfc; }
+    h1, h2, h3 { color: #072d51; }
+    code, pre { background: #f3f4f6; border-radius: 6px; }
+    code { padding: 2px 5px; }
+    pre { padding: 14px; overflow-x: auto; }
+    .ok { border-left: 5px solid #10b981; background: #ecfdf5; padding: 14px 18px; }
+    .warn { border-left: 5px solid #fd5c12; background: #fff7ed; padding: 14px 18px; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; background: #fff; }
+    th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f9fafb; }
+  </style>
+</head>
+<body>
+  <h1>Motor de e-mail — Agent CrossDo</h1>
+
+  <section class="ok">
+    <h2>Resultado</h2>
+    <p>Foi preparado o motor de e-mail do novo portal <strong>Agent CrossDo</strong>, reaproveitando o padrão real encontrado no Portal CrossDo atual.</p>
+    <p>O padrão encontrado não é Brevo no código atual: é <strong>SMTP direto via smtplib com STARTTLS na porta 587</strong>.</p>
+  </section>
+
+  <h2>Repositórios</h2>
+  <table>
+    <tr><th>Item</th><th>Portal referência</th><th>Novo portal</th></tr>
+    <tr><td>Caminho</td><td><code>/root/workspace/portal-crossdo-app</code></td><td><code>/root/workspace/agent-crossdo-app</code></td></tr>
+    <tr><td>Remote</td><td><code>https://github.com/henriqueandrade142-cell/portal-crossdo-app.git</code></td><td><code>https://github.com/henriqueandrade142-cell/agent-crossdo-app.git</code></td></tr>
+    <tr><td>Branch</td><td><code>main</code></td><td><code>main</code></td></tr>
+    <tr><td>Commit base</td><td><code>c7ff970</code></td><td><code>fdfcfbb</code></td></tr>
+  </table>
+
+  <h2>Arquivos de referência encontrados</h2>
+  <pre><code>app/src/core/motor_email.py
+app/src/core/auth.py
+app/src/api/routers/auth.py
+app/src/config/settings.py
+app/tests/core/test_motor_email.py
+app/tests/core/test_enviar_cobranca_email.py</code></pre>
+
+  <h2>Variáveis reais encontradas</h2>
+  <pre><code>SMTP_HOST=
+SMTP_PORT=
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM_EMAIL=
+SMTP_FROM_NAME=
+PORTAL_URL=
+CORS_ORIGINS=
+BREVO_API_KEY=</code></pre>
+
+  <h2>Adaptação para Agent CrossDo</h2>
+  <pre><code>PORTAL_URL=https://agent.crossdo.app
+CORS_ORIGINS=https://agent.crossdo.app
+SMTP_FROM_NAME=Agent CrossDo</code></pre>
+
+  <h2>Arquivos criados no novo portal</h2>
+  <pre><code>backend/requirements.txt
+backend/.env.example
+backend/README.md
+backend/src/agent_crossdo/settings.py
+backend/src/agent_crossdo/email_engine.py
+backend/src/agent_crossdo/auth_flow.py
+backend/src/agent_crossdo/api.py
+backend/tests/test_email_engine.py
+backend/tests/test_auth_flow.py
+docs/motor-email-agent-crossdo.md</code></pre>
+
+  <h2>Frontend alterado</h2>
+  <p>Arquivo: <code>src/App.tsx</code></p>
+  <ul>
+    <li>Incluído botão <strong>Esqueci minha senha</strong> na tela de login.</li>
+    <li>O botão chama <code>POST /api/v1/auth/esqueci-senha</code>.</li>
+    <li>Usa <code>VITE_API_BASE_URL</code> quando a API estiver em domínio separado.</li>
+  </ul>
+
+  <h2>Validação executada</h2>
+  <pre><code>PYTHONPATH=backend/src pytest backend/tests -q
+Resultado: 5 passed
+
+npm run build
+Resultado: build Vite concluído com sucesso
+
+GET /health
+Resultado: 200 {'ok': True}
+
+POST /api/v1/auth/esqueci-senha
+Resultado: 200 {'ok': True, 'mensagem': 'Se esse e-mail estiver cadastrado e ativo, enviamos uma nova senha para ele.'}</code></pre>
+
+  <section class="warn">
+    <h2>Ponto crítico</h2>
+    <p>O novo portal ainda era frontend-only/localStorage. O motor de e-mail está preparado, mas para produção falta conectar um backend real com PostgreSQL, usuários, hash de senha, login real e deploy da API.</p>
+  </section>
+
+  <h2>Credenciais necessárias</h2>
+  <pre><code>SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=***
+SMTP_FROM_EMAIL=
+SMTP_FROM_NAME=Agent CrossDo</code></pre>
+
+  <h2>Mensagem pronta para solicitar credenciais</h2>
+  <pre><code>Preciso configurar o envio de e-mails automáticos do novo portal CrossDo em https://agent.crossdo.app.
+
+Favor informar/criar as credenciais SMTP ou provedor transacional usadas pelo Portal CrossDo atual:
+
+- Host SMTP:
+- Porta:
+- Usuário:
+- Senha/app password:
+- E-mail remetente:
+- Nome remetente:
+- Regras de SPF/DKIM/DMARC, se houver:
+
+O motor atual do Portal CrossDo usa SMTP com STARTTLS na porta 587. Não preciso da senha pelo chat se preferirem cadastrar direto no arquivo de ambiente/secret da VPS.</code></pre>
+</body>
+</html>
