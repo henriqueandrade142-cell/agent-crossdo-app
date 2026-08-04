@@ -36,6 +36,7 @@ class Settings:
 
     brevo_api_key: str = os.getenv("BREVO_API_KEY", "")
     brevo_api_url: str = os.getenv("BREVO_API_URL", "https://api.brevo.com/v3/smtp/email")
+    n8n_ingest_token: str = os.getenv("N8N_INGEST_TOKEN", "")
 
 
 settings = Settings()

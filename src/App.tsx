@@ -67,9 +67,6 @@ const MASTER_WHATSAPP = '(31) 98502-4841'
 const MASTER_SETOR = 'TI'
 const MASTER_PASSWORD_HASH = '4cfd8b11c5d6d57f420889084a45b4a808f4c4ecc21c3abc6aa903fc99e5536a'
 const USERS_KEY = 'agent_crossdo_users'
-const CLIENT_GROUPS_KEY = 'agent_crossdo_client_groups'
-const LEGACY_CLIENTS_KEY = 'agent_crossdo_clients'
-const LEGACY_GROUPS_KEY = 'agent_crossdo_groups_clients'
 
 const masterUser: UserRecord = {
   id: 'USR-0001',
@@ -156,6 +153,26 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return data
 }
 
+async function getJson<T>(path: string): Promise<T> {
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
+  const response = await fetch(`${apiBaseUrl}${path}`)
+  const data = await response.json().catch(() => ({})) as T & { detail?: string }
+  if (!response.ok) throw new Error(data.detail || 'Falha na solicitação')
+  return data
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await response.json().catch(() => ({})) as T & { detail?: string }
+  if (!response.ok) throw new Error(data.detail || 'Falha na solicitação')
+  return data
+}
+
 function readStore<T>(key: string, fallback: T): T {
   try {
     const raw = window.localStorage.getItem(key)
@@ -201,36 +218,9 @@ function App() {
     const hasMaster = normalizedUsers.some((user) => user.id === masterUser.id)
     setUsers(hasMaster ? normalizedUsers.map((user) => (user.id === masterUser.id ? masterUser : user)) : [masterUser, ...normalizedUsers])
 
-    const storedClientGroups = readStore<ClientGroupRecord[]>(CLIENT_GROUPS_KEY, [])
-    if (storedClientGroups.length) {
-      setClientGroups(storedClientGroups)
-      return
-    }
-
-    const legacyClients = readStore<Array<Record<string, string>>>(LEGACY_CLIENTS_KEY, [])
-    const legacyGroups = readStore<Array<Record<string, string>>>(LEGACY_GROUPS_KEY, [])
-    const migrated = legacyGroups.map((group) => {
-      const client = legacyClients.find((item) => item.id === group.clienteId)
-      return {
-        ...emptyClientGroup,
-        id: String(group.id || generateId('CG')),
-        nomeGrupo: String(group.nomeGrupo || ''),
-        idGrupo: String(group.identificadorGrupo || ''),
-        statusGrupo: (group.status as Status) || 'Ativo',
-        nomeCliente: String(client?.nomeCliente || ''),
-        documento: String(client?.documento || ''),
-        responsavelCliente: String(client?.responsavel || ''),
-        emailResponsavel: String(client?.emailResponsavel || ''),
-        telefoneResponsavel: String(client?.telefone || ''),
-        unidade: String(group.unidade || client?.unidade || 'Nova Lima/MG'),
-        demandaMonitorada: String(group.demandaMonitorada || client?.tipoDemanda || ''),
-        sla: String(client?.sla || ''),
-        observacoes: String(group.observacoes || client?.observacoes || ''),
-        origemCadastro: 'manual' as const,
-      }
-    })
-    setClientGroups(migrated)
-    if (migrated.length) writeStore(CLIENT_GROUPS_KEY, migrated)
+    getJson<{ items: ClientGroupRecord[] }>('/api/v1/grupos-clientes')
+      .then((data) => setClientGroups(data.items || []))
+      .catch(() => notify('Não foi possível carregar os grupos identificados pelo n8n.'))
   }, [])
 
   function notify(message: string) {
@@ -246,24 +236,8 @@ function App() {
     writeStore(USERS_KEY, normalized)
   }
 
-  function persistClientGroups(next: ClientGroupRecord[]) {
-    setClientGroups(next)
-    writeStore(CLIENT_GROUPS_KEY, next)
-  }
-
-  function markGroupRemovedByN8n(idGrupo: string) {
-    persistClientGroups(clientGroups.map((item) => item.idGrupo === idGrupo ? { ...item, statusGrupo: 'Inativo' } : item))
-  }
-
-  function mergeContacts(current: GroupContact[], incoming: GroupContact[]) {
-    const next = [...current]
-    for (const contact of incoming) {
-      const phone = normalizePhone(contact.whatsapp)
-      const index = next.findIndex((item) => normalizePhone(item.whatsapp) === phone && phone)
-      if (index >= 0) next[index] = { ...next[index], ...contact, id: next[index].id }
-      else next.push(contact)
-    }
-    return next
+  function updateClientGroupState(record: ClientGroupRecord) {
+    setClientGroups((current) => current.map((item) => (item.id === record.id ? record : item)))
   }
 
   function findKnownInternalContact(whatsapp: string) {
@@ -427,10 +401,14 @@ function App() {
     }
   }
 
-  function saveClientGroup(event: React.FormEvent<HTMLFormElement>) {
+  async function saveClientGroup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!clientGroupForm.id) {
+      notify('O cadastro é criado automaticamente quando o grupo chega pelo n8n.')
+      return
+    }
     if (!clientGroupForm.nomeGrupo.trim() || !clientGroupForm.idGrupo.trim()) {
-      notify('Preencha nome do grupo e ID do grupo.')
+      notify('Nome do grupo e ID do grupo vêm do n8n e são obrigatórios.')
       return
     }
     if (clientGroupForm.emailResponsavel.trim() && !isValidEmail(clientGroupForm.emailResponsavel)) {
@@ -441,25 +419,23 @@ function App() {
       notify('Informe um WhatsApp de responsável válido com DDD.')
       return
     }
-    const duplicate = clientGroups.some((item) => item.id !== clientGroupForm.id && item.idGrupo === clientGroupForm.idGrupo)
-    if (duplicate) {
-      notify('Já existe cadastro com este ID de grupo.')
+    const record = { ...clientGroupForm, emailResponsavel: clientGroupForm.emailResponsavel.trim().toLowerCase(), telefoneResponsavel: formatWhatsapp(clientGroupForm.telefoneResponsavel) }
+    try {
+      const saved = await putJson<ClientGroupRecord>(`/api/v1/grupos-clientes/${record.id}`, record)
+      updateClientGroupState(saved)
+      setClientGroupForm(saved)
+      setContactForm(emptyContact)
+      notify('Cadastro salvo.')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Não foi possível salvar o cadastro.')
+    }
+  }
+
+  function saveContactDetails() {
+    if (!contactForm.id) {
+      notify('Selecione um contato capturado do grupo para editar.')
       return
     }
-    const record = { ...clientGroupForm, emailResponsavel: clientGroupForm.emailResponsavel.trim().toLowerCase(), telefoneResponsavel: formatWhatsapp(clientGroupForm.telefoneResponsavel), id: clientGroupForm.id || generateId('CG') }
-    persistClientGroups(clientGroupForm.id ? clientGroups.map((item) => (item.id === clientGroupForm.id ? record : item)) : [record, ...clientGroups])
-    setClientGroupForm(emptyClientGroup)
-    setContactForm(emptyContact)
-    notify('Cadastro salvo.')
-  }
-
-  function deleteClientGroup(id: string) {
-    persistClientGroups(clientGroups.filter((item) => item.id !== id))
-    if (clientGroupForm.id === id) setClientGroupForm(emptyClientGroup)
-    notify('Cadastro removido.')
-  }
-
-  function addContact() {
     if (!contactForm.whatsapp.trim()) {
       notify('Informe o WhatsApp do contato.')
       return
@@ -472,21 +448,13 @@ function App() {
       notify('Informe um e-mail válido para o contato.')
       return
     }
-    const record = autofillInternalContact({ ...contactForm, whatsapp: formatWhatsapp(contactForm.whatsapp), email: contactForm.email.trim().toLowerCase(), id: contactForm.id || generateId('CTT') })
-    const contacts = contactForm.id
-      ? clientGroupForm.contatos.map((item) => item.id === contactForm.id ? record : item)
-      : mergeContacts(clientGroupForm.contatos, [record])
-    setClientGroupForm({ ...clientGroupForm, contatos: contacts })
+    const record = autofillInternalContact({ ...contactForm, whatsapp: formatWhatsapp(contactForm.whatsapp), email: contactForm.email.trim().toLowerCase() })
+    setClientGroupForm({ ...clientGroupForm, contatos: clientGroupForm.contatos.map((item) => item.id === record.id ? record : item) })
     setContactForm(emptyContact)
   }
 
   function editContact(contact: GroupContact) {
     setContactForm(contact)
-  }
-
-  function deleteContact(id: string) {
-    setClientGroupForm({ ...clientGroupForm, contatos: clientGroupForm.contatos.filter((contact) => contact.id !== id) })
-    if (contactForm.id === id) setContactForm(emptyContact)
   }
 
   function renderUsers() {
@@ -530,7 +498,7 @@ function App() {
         <SectionHeader eyebrow="Cadastros" title="Clientes/Grupos" description="Cadastro único do cliente, grupo de WhatsApp e contatos identificados no grupo." />
         <div className="toolbar">
           <div className="search-box"><Search size={18} /><input value={clientSearch} onChange={(event) => setClientSearch(event.target.value)} placeholder="Buscar por cliente, grupo ou ID" /></div>
-          <button className="primary-button" type="button" onClick={() => setClientGroupForm(emptyClientGroup)}><Plus size={16} /> Novo cadastro</button>
+          <span className="sync-badge">Grupos criados automaticamente pelo n8n</span>
         </div>
         <div className="card table-card spaced-card">
           <table>
@@ -538,17 +506,17 @@ function App() {
             <tbody>{filteredClientGroups.length === 0 ? <tr><td colSpan={7}>Nenhum cadastro encontrado.</td></tr> : filteredClientGroups.map((record) => (
               <tr key={record.id}>
                 <td>{record.nomeGrupo}</td><td>{record.idGrupo}</td><td>{record.nomeCliente || 'Pendente'}</td><td>{record.unidade}</td><td>{record.contatos.length}</td>
-                <td><button className={`pill status ${record.statusGrupo === 'Ativo' ? 'success' : 'neutral'}`} type="button" onClick={() => markGroupRemovedByN8n(record.idGrupo)}>{record.statusGrupo}</button></td>
-                <td><div className="row-actions"><button type="button" onClick={() => setClientGroupForm(record)}><Edit3 size={15} /></button><button type="button" onClick={() => deleteClientGroup(record.id)}><Trash2 size={15} /></button></div></td>
+                <td><span className={`pill ${record.statusGrupo === 'Ativo' ? 'success' : 'neutral'}`}>{record.statusGrupo}</span></td>
+                <td><div className="row-actions"><button type="button" title="Completar cadastro" onClick={() => setClientGroupForm(record)}><Edit3 size={15} /></button></div></td>
               </tr>
             ))}</tbody>
           </table>
         </div>
         <form className="card record-form" onSubmit={saveClientGroup}>
-          <h3>{clientGroupForm.id ? 'Editar cliente/grupo' : 'Novo cliente/grupo'}</h3>
-          <label><span>Nome do grupo</span><input value={clientGroupForm.nomeGrupo} onChange={(event) => setClientGroupForm({ ...clientGroupForm, nomeGrupo: event.target.value })} /></label>
-          <label><span>ID do grupo</span><input value={clientGroupForm.idGrupo} onChange={(event) => setClientGroupForm({ ...clientGroupForm, idGrupo: event.target.value })} /></label>
-          <label><span>Status do grupo</span><select value={clientGroupForm.statusGrupo} onChange={(event) => setClientGroupForm({ ...clientGroupForm, statusGrupo: event.target.value as Status })}><option>Ativo</option><option>Inativo</option></select></label>
+          <h3>{clientGroupForm.id ? 'Editar grupo/cliente' : 'Selecione um grupo identificado'}</h3>
+          <label><span>Nome do grupo</span><input value={clientGroupForm.nomeGrupo} readOnly /></label>
+          <label><span>ID do grupo</span><input value={clientGroupForm.idGrupo} readOnly /></label>
+          <label><span>Status do grupo</span><input value={clientGroupForm.statusGrupo} readOnly /></label>
           <label><span>Nome do cliente</span><input value={clientGroupForm.nomeCliente} onChange={(event) => setClientGroupForm({ ...clientGroupForm, nomeCliente: event.target.value })} /></label>
           <label><span>CNPJ / CPF</span><input value={clientGroupForm.documento} onChange={(event) => setClientGroupForm({ ...clientGroupForm, documento: event.target.value })} /></label>
           <label><span>Unidade</span><select value={clientGroupForm.unidade} onChange={(event) => setClientGroupForm({ ...clientGroupForm, unidade: event.target.value })}><option>Nova Lima/MG</option><option>Barueri/SP</option><option>Todas</option></select></label>
@@ -565,7 +533,7 @@ function App() {
               {clientGroupForm.contatos.length === 0 ? <p className="muted">Nenhum contato cadastrado.</p> : clientGroupForm.contatos.map((contact) => (
                 <div className="contact-row" key={contact.id}>
                   <span>{contact.nome || 'Sem nome'}</span><span>{contact.funcao || '—'}</span><span>{contact.whatsapp}</span><span>{contact.email || '—'}</span><span className="pill dark">{contact.tipo}</span>
-                  <div className="row-actions"><button type="button" onClick={() => editContact(contact)}><Edit3 size={14} /></button><button type="button" onClick={() => deleteContact(contact.id)}><Trash2 size={14} /></button></div>
+                  <div className="row-actions"><button type="button" title="Editar contato" onClick={() => editContact(contact)}><Edit3 size={14} /></button></div>
                 </div>
               ))}
             </div>
@@ -576,9 +544,9 @@ function App() {
             <label><span>Nome</span><input value={contactForm.nome} onChange={(event) => setContactForm({ ...contactForm, nome: event.target.value })} /></label>
             <label><span>Função</span><input value={contactForm.funcao} onChange={(event) => setContactForm({ ...contactForm, funcao: event.target.value })} /></label>
             <label><span>E-mail</span><input type="email" inputMode="email" autoComplete="email" value={contactForm.email} onChange={(event) => setContactForm({ ...contactForm, email: event.target.value.trim().toLowerCase() })} /></label>
-            <button className="secondary-button" type="button" onClick={addContact}><Plus size={16} /> Adicionar contato</button>
+            <button className="secondary-button" type="button" onClick={saveContactDetails} disabled={!contactForm.id}><Save size={16} /> Salvar contato</button>
           </div>
-          <div className="form-actions span-2"><button className="secondary-button" type="button" onClick={() => { setClientGroupForm(emptyClientGroup); setContactForm(emptyContact) }}>Limpar</button><button className="primary-button" type="submit"><Save size={16} /> Salvar</button></div>
+          <div className="form-actions span-2"><button className="secondary-button" type="button" onClick={() => { setClientGroupForm(emptyClientGroup); setContactForm(emptyContact) }}>Cancelar edição</button><button className="primary-button" type="submit" disabled={!clientGroupForm.id}><Save size={16} /> Salvar cadastro</button></div>
         </form>
       </main>
     )
@@ -591,7 +559,7 @@ function App() {
         <div className="stats-grid">{stats.map((stat) => <article className={`stat-card ${stat.tone}`} key={stat.label}><span>{stat.label}</span><strong>{stat.value}</strong><small>{stat.hint}</small></article>)}</div>
         <div className="dashboard-grid">
           <article className="card"><div className="card-title"><LayoutDashboard size={20} /><h3>Módulos ativos</h3></div><ul className="timeline"><li><strong>Usuários:</strong> controle de acesso interno.</li><li><strong>Clientes/Grupos:</strong> cadastro único por grupo identificado.</li><li><strong>Contatos:</strong> classificação de participantes internos e externos.</li></ul></article>
-          <article className="card"><div className="card-title"><Building2 size={20} /><h3>Ações rápidas</h3></div><div className="quick-actions stacked"><button type="button" onClick={() => setScreen('clientesGrupos')}>Abrir clientes/grupos</button><button type="button" onClick={() => { setClientGroupForm(emptyClientGroup); setScreen('clientesGrupos') }}>Novo cadastro</button><button type="button" onClick={() => setScreen('usuarios')}>Gerenciar usuários</button></div></article>
+          <article className="card"><div className="card-title"><Building2 size={20} /><h3>Ações rápidas</h3></div><div className="quick-actions stacked"><button type="button" onClick={() => setScreen('clientesGrupos')}>Abrir clientes/grupos</button><button type="button" onClick={() => setScreen('usuarios')}>Gerenciar usuários</button></div></article>
         </div>
       </main>
     )
