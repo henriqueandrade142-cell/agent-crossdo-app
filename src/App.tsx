@@ -251,39 +251,6 @@ function App() {
     writeStore(CLIENT_GROUPS_KEY, next)
   }
 
-  function upsertGroupDetectedByN8n(payload: { nomeGrupo: string; idGrupo: string; contatos?: Array<Partial<GroupContact>> }) {
-    const existing = clientGroups.find((item) => item.idGrupo === payload.idGrupo)
-    const contacts = (payload.contatos ?? []).map((contact) => autofillInternalContact({
-      ...emptyContact,
-      id: contact.id || generateId('CTT'),
-      nome: contact.nome || '',
-      whatsapp: contact.whatsapp || '',
-      email: contact.email || '',
-      funcao: contact.funcao || '',
-      tipo: contact.tipo || 'Não definido',
-    }))
-
-    if (existing) {
-      persistClientGroups(clientGroups.map((item) => item.id === existing.id ? { ...item, nomeGrupo: payload.nomeGrupo, statusGrupo: 'Ativo', contatos: mergeContacts(item.contatos, contacts) } : item))
-      notify('Grupo atualizado pelo fluxo.')
-      return
-    }
-
-    const record: ClientGroupRecord = {
-      ...emptyClientGroup,
-      id: generateId('CG'),
-      nomeGrupo: payload.nomeGrupo,
-      idGrupo: payload.idGrupo,
-      statusGrupo: 'Inativo',
-      origemCadastro: 'n8n',
-      contatos: contacts,
-    }
-    persistClientGroups([record, ...clientGroups])
-    setClientGroupForm(record)
-    setScreen('clientesGrupos')
-    notify('Grupo identificado. Cadastro criado para completar.')
-  }
-
   function markGroupRemovedByN8n(idGrupo: string) {
     persistClientGroups(clientGroups.map((item) => item.idGrupo === idGrupo ? { ...item, statusGrupo: 'Inativo' } : item))
   }
@@ -563,7 +530,7 @@ function App() {
         <SectionHeader eyebrow="Cadastros" title="Clientes/Grupos" description="Cadastro único do cliente, grupo de WhatsApp e contatos identificados no grupo." />
         <div className="toolbar">
           <div className="search-box"><Search size={18} /><input value={clientSearch} onChange={(event) => setClientSearch(event.target.value)} placeholder="Buscar por cliente, grupo ou ID" /></div>
-          <button className="primary-button" type="button" onClick={() => upsertGroupDetectedByN8n({ nomeGrupo: 'Grupo identificado pelo n8n', idGrupo: `grupo-${Date.now()}` })}><Plus size={16} /> Grupo detectado</button>
+          <button className="primary-button" type="button" onClick={() => setClientGroupForm(emptyClientGroup)}><Plus size={16} /> Novo cadastro</button>
         </div>
         <div className="card table-card spaced-card">
           <table>
@@ -624,7 +591,7 @@ function App() {
         <div className="stats-grid">{stats.map((stat) => <article className={`stat-card ${stat.tone}`} key={stat.label}><span>{stat.label}</span><strong>{stat.value}</strong><small>{stat.hint}</small></article>)}</div>
         <div className="dashboard-grid">
           <article className="card"><div className="card-title"><LayoutDashboard size={20} /><h3>Módulos ativos</h3></div><ul className="timeline"><li><strong>Usuários:</strong> controle de acesso interno.</li><li><strong>Clientes/Grupos:</strong> cadastro único por grupo identificado.</li><li><strong>Contatos:</strong> classificação de participantes internos e externos.</li></ul></article>
-          <article className="card"><div className="card-title"><Building2 size={20} /><h3>Ações rápidas</h3></div><div className="quick-actions stacked"><button type="button" onClick={() => setScreen('clientesGrupos')}>Abrir clientes/grupos</button><button type="button" onClick={() => upsertGroupDetectedByN8n({ nomeGrupo: 'Grupo identificado pelo n8n', idGrupo: `grupo-${Date.now()}` })}>Registrar grupo detectado</button><button type="button" onClick={() => setScreen('usuarios')}>Gerenciar usuários</button></div></article>
+          <article className="card"><div className="card-title"><Building2 size={20} /><h3>Ações rápidas</h3></div><div className="quick-actions stacked"><button type="button" onClick={() => setScreen('clientesGrupos')}>Abrir clientes/grupos</button><button type="button" onClick={() => { setClientGroupForm(emptyClientGroup); setScreen('clientesGrupos') }}>Novo cadastro</button><button type="button" onClick={() => setScreen('usuarios')}>Gerenciar usuários</button></div></article>
         </div>
       </main>
     )
