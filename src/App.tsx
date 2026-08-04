@@ -125,12 +125,7 @@ const emptyClientGroup: ClientGroupRecord = {
   contatos: [],
 }
 
-const FUNCIONALIDADES_AGENT = [
-  'Cross Audit — registrar mensagens no banco',
-  'Classificação automática de mensagens',
-  'Relatório interno de grupo não mapeado',
-  'Sugestão de resposta para aprovação humana',
-]
+const FUNCIONALIDADES_AGENT: string[] = []
 
 function normalizeClientGroupRecord(record: Partial<ClientGroupRecord>): ClientGroupRecord {
   return {
@@ -334,7 +329,7 @@ function App() {
 
   const activeUsers = users.filter((user) => user.status === 'Ativo').length
   const activeGroups = clientGroups.filter((group) => group.statusGrupo === 'Ativo').length
-  const pendingGroups = clientGroups.filter((group) => !group.nomeCliente.trim() || !group.crossAgentAdicionado).length
+  const pendingGroups = clientGroups.filter((group) => !group.nomeCliente.trim() || !group.demandaMonitorada).length
 
   const stats = useMemo(
     () => [
@@ -475,7 +470,7 @@ function App() {
       notify('Informe um CNPJ válido.')
       return
     }
-    const record = normalizeClientGroupRecord({ ...clientGroupForm, documento: formatCnpj(clientGroupForm.documento), emailResponsavel: clientGroupForm.emailResponsavel.trim().toLowerCase(), telefoneResponsavel: formatWhatsapp(clientGroupForm.telefoneResponsavel), wmsApiKeyUsuario: clientGroupForm.wmsApiKeyUsuario.trim() })
+    const record = normalizeClientGroupRecord({ ...clientGroupForm, documento: formatCnpj(clientGroupForm.documento), emailResponsavel: clientGroupForm.emailResponsavel.trim().toLowerCase(), telefoneResponsavel: formatWhatsapp(clientGroupForm.telefoneResponsavel), wmsApiKeyUsuario: clientGroupForm.wmsApiKeyUsuario.trim(), agentAtivo: clientGroupForm.crossAgentAdicionado ? clientGroupForm.agentAtivo : false, funcionalidades: clientGroupForm.crossAgentAdicionado ? clientGroupForm.funcionalidades : [] })
     try {
       const saved = await putJson<ClientGroupRecord>(`/api/v1/grupos-clientes/${record.id}`, record)
       updateClientGroupState(saved)
@@ -582,10 +577,8 @@ function App() {
           <label><span>Usuário da API key e-Ship</span><input placeholder="Usuário/identificador usado no WMS" value={clientGroupForm.wmsApiKeyUsuario} onChange={(event) => setClientGroupForm({ ...clientGroupForm, wmsApiKeyUsuario: event.target.value })} /></label>
           <label><span>API key/token WMS e-Ship</span><input type="password" autoComplete="off" placeholder={clientGroupForm.wmsApiKeySet ? 'Token já configurado — preencher para substituir' : 'Cole a API key do cliente'} value={clientGroupForm.wmsApiKey} onChange={(event) => setClientGroupForm({ ...clientGroupForm, wmsApiKey: event.target.value })} /></label>
           <div className="span-2 secret-note">A API key fica salva apenas no backend para o agente consultar o WMS com o acesso correto do cliente. Ela não é exibida novamente na tela.</div>
-          <label className="check-label"><input type="checkbox" checked={clientGroupForm.crossAgentAdicionado} onChange={(event) => setClientGroupForm({ ...clientGroupForm, crossAgentAdicionado: event.target.checked })} /><span>Número do Cross Agent adicionado ao grupo</span></label>
-          <label className="check-label"><input type="checkbox" checked={clientGroupForm.demandaMonitorada} onChange={(event) => setClientGroupForm({ ...clientGroupForm, demandaMonitorada: event.target.checked })} /><span>Monitorar demanda no Cross Audit</span></label>
-          <label className="check-label"><input type="checkbox" checked={clientGroupForm.agentAtivo} onChange={(event) => setClientGroupForm({ ...clientGroupForm, agentAtivo: event.target.checked })} /><span>Agent ativo para este grupo</span></label>
-          <div className="span-2 feature-box"><div className="feature-box-header"><strong>Funcionalidades habilitadas</strong><button className="secondary-button" type="button" onClick={() => setClientGroupForm({ ...clientGroupForm, funcionalidades: clientGroupForm.funcionalidades.length === FUNCIONALIDADES_AGENT.length ? [] : FUNCIONALIDADES_AGENT })}>{clientGroupForm.funcionalidades.length === FUNCIONALIDADES_AGENT.length ? 'Desmarcar todas' : 'Selecionar todas'}</button></div>{FUNCIONALIDADES_AGENT.map((feature) => <label className="check-label" key={feature}><input type="checkbox" checked={clientGroupForm.funcionalidades.includes(feature)} onChange={(event) => setClientGroupForm({ ...clientGroupForm, funcionalidades: event.target.checked ? [...clientGroupForm.funcionalidades, feature] : clientGroupForm.funcionalidades.filter((item) => item !== feature) })} /><span>{feature}</span></label>)}</div>
+          <div className="span-2 activation-box"><div className="feature-box-header"><strong>Status e ativação operacional</strong><span className="sync-badge">Dados do n8n + validação humana</span></div><div className="status-grid"><div className="status-item"><span>Grupo identificado no n8n</span><strong>{clientGroupForm.id ? 'Sim' : 'Não'}</strong><small>Se apareceu nesta tela, o grupo já foi capturado pelo fluxo.</small></div><div className="status-item"><span>WhatsApp do Cross Agent no grupo</span><strong>{clientGroupForm.crossAgentAdicionado ? 'Confirmado' : 'Não confirmado'}</strong><small>Informativo, atualizado automaticamente pelo n8n/participantes do grupo.</small></div></div><label className="check-label"><input type="checkbox" checked={clientGroupForm.demandaMonitorada} onChange={(event) => setClientGroupForm({ ...clientGroupForm, demandaMonitorada: event.target.checked })} /><span>Ativar monitoramento para começar a capturar dados</span></label><label className="check-label muted-control"><input type="checkbox" checked={clientGroupForm.agentAtivo} disabled={!clientGroupForm.crossAgentAdicionado} onChange={(event) => setClientGroupForm({ ...clientGroupForm, agentAtivo: event.target.checked })} /><span>Ativar Cross Agent neste grupo</span></label>{!clientGroupForm.crossAgentAdicionado && <p className="muted">A ativação do Cross Agent fica bloqueada até o n8n confirmar que o número do agente está no grupo.</p>}</div>
+          <div className="span-2 feature-box"><div className="feature-box-header"><strong>Permissões do Cross Agent</strong><button className="secondary-button" type="button" disabled={FUNCIONALIDADES_AGENT.length === 0 || !clientGroupForm.agentAtivo} onClick={() => setClientGroupForm({ ...clientGroupForm, funcionalidades: clientGroupForm.funcionalidades.length === FUNCIONALIDADES_AGENT.length ? [] : FUNCIONALIDADES_AGENT })}>{clientGroupForm.funcionalidades.length === FUNCIONALIDADES_AGENT.length && FUNCIONALIDADES_AGENT.length > 0 ? 'Desmarcar todas' : 'Selecionar todas'}</button></div>{FUNCIONALIDADES_AGENT.length === 0 ? <p className="muted">Nenhuma permissão do Cross Agent cadastrada ainda. A lista será preenchida quando as funcionalidades forem criadas.</p> : FUNCIONALIDADES_AGENT.map((feature) => <label className="check-label" key={feature}><input type="checkbox" disabled={!clientGroupForm.agentAtivo} checked={clientGroupForm.funcionalidades.includes(feature)} onChange={(event) => setClientGroupForm({ ...clientGroupForm, funcionalidades: event.target.checked ? [...clientGroupForm.funcionalidades, feature] : clientGroupForm.funcionalidades.filter((item) => item !== feature) })} /><span>{feature}</span></label>)}</div>
           <label className="span-2"><span>Observações informativas</span><textarea value={clientGroupForm.observacoes} onChange={(event) => setClientGroupForm({ ...clientGroupForm, observacoes: event.target.value })} /></label>
           <div className="contact-panel span-2">
             <h4>Contatos do grupo</h4><p className="muted">Lista atualizada automaticamente a partir dos participantes capturados no n8n. Complete nome, função, e-mail e tipo quando necessário.</p>

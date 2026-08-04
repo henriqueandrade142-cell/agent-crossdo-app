@@ -59,6 +59,8 @@ class GrupoN8nRequest(BaseModel):
     nomeGrupo: str | None = None
     groupName: str | None = None
     subject: str | None = None
+    crossAgentAdicionado: bool | None = None
+    crossAgentInGroup: bool | None = None
     contatos: list[dict] = []
     participants: list[dict] = []
 
@@ -77,7 +79,6 @@ class GrupoUpdateRequest(BaseModel):
     telefoneResponsavel: str = ""
     unidade: str = "Nova Lima/MG"
     demandaMonitorada: bool = False
-    crossAgentAdicionado: bool = False
     agentAtivo: bool = False
     funcionalidades: list[str] = []
     wmsApiKeyUsuario: str = ""

@@ -55,6 +55,7 @@ class JsonGroupRepository:
             nome_grupo = id_grupo
 
         incoming_contacts = [self._normalize_contact(c) for c in payload.get("contatos") or payload.get("participants") or []]
+        detected_cross_agent = self._detect_cross_agent(payload, incoming_contacts)
         with self._lock:
             data = self._read()
             groups = data.setdefault("groups", [])
@@ -63,11 +64,17 @@ class JsonGroupRepository:
                 existing["nomeGrupo"] = nome_grupo
                 existing["statusGrupo"] = "Ativo"
                 existing["origemCadastro"] = "n8n"
+                if detected_cross_agent is not None:
+                    existing["crossAgentAdicionado"] = detected_cross_agent
+                    if not detected_cross_agent:
+                        existing["agentAtivo"] = False
                 existing["contatos"] = self._merge_contacts(existing.get("contatos", []), incoming_contacts)
                 existing["updatedAt"] = _now()
                 record = existing
             else:
                 record = self._blank_record(nome_grupo, id_grupo)
+                if detected_cross_agent is not None:
+                    record["crossAgentAdicionado"] = detected_cross_agent
                 record["contatos"] = incoming_contacts
                 groups.insert(0, record)
             self._write(data)
@@ -92,16 +99,20 @@ class JsonGroupRepository:
         allowed = {
             "nomeCliente", "documento", "responsavelCliente", "emailResponsavel",
             "telefoneResponsavel", "unidade", "demandaMonitorada",
-            "crossAgentAdicionado", "agentAtivo", "funcionalidades",
+            "agentAtivo", "funcionalidades",
             "wmsApiKeyUsuario", "observacoes", "contatos", "statusGrupo",
         }
         with self._lock:
             data = self._read()
             for group in data.get("groups", []):
                 if group.get("id") == record_id:
+                    incoming = dict(payload)
+                    if not group.get("crossAgentAdicionado"):
+                        incoming["agentAtivo"] = False
+                        incoming["funcionalidades"] = []
                     for key in allowed:
-                        if key in payload:
-                            group[key] = payload[key]
+                        if key in incoming:
+                            group[key] = incoming[key]
                     if payload.get("wmsApiKey"):
                         group["wmsApiKey"] = str(payload["wmsApiKey"]).strip()
                     group["updatedAt"] = _now()
@@ -133,6 +144,18 @@ class JsonGroupRepository:
             "createdAt": _now(),
             "updatedAt": _now(),
         }
+
+    def _detect_cross_agent(self, payload: dict, contacts: list[dict]) -> bool | None:
+        explicit = payload.get("crossAgentAdicionado")
+        if explicit is None:
+            explicit = payload.get("crossAgentInGroup")
+        if explicit is not None:
+            return bool(explicit)
+        expected_numbers = {_digits(number) for number in settings.cross_agent_whatsapp_numbers if _digits(number)}
+        if not expected_numbers:
+            return None
+        contact_numbers = {_digits(contact.get("whatsapp", "")) for contact in contacts if _digits(contact.get("whatsapp", ""))}
+        return bool(expected_numbers & contact_numbers)
 
     def _normalize_group(self, group: dict) -> dict:
         base = self._blank_record(str(group.get("nomeGrupo") or group.get("idGrupo") or ""), str(group.get("idGrupo") or ""))
